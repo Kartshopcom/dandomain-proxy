@@ -9,7 +9,7 @@ app.use((req, res, next) => {
 app.get("/ordrer", async (req, res) => {
   const { shop, key, site } = req.query;
   const today = new Date().toISOString().split("T")[0];
-const url = `http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetByDateInterval?startdate=${today}T00:00:00&enddate=${today}T23:59:59`;
+const url = `http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetByDateInterval?startdate=${today}T00:00:00&enddate=${today}T23:59:59&siteid=${site}`;
   try {
   const r = await fetch(url, { headers: { "Accept": "application/json" } });
 const text = await r.text();
