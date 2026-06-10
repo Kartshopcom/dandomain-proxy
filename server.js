@@ -11,7 +11,7 @@ app.get("/ordrer", async (req, res) => {
   const today = new Date().toISOString().split("T")[0];
 const url = `http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetByDateInterval/${today}T00:00:00/${today}T23:59:59`;
   try {
-    const r = await fetch(url);
+  const r = await fetch(url, { headers: { "Accept": "application/json" } });
     const data = await r.json();
     res.json(data);
   } catch (e) {
