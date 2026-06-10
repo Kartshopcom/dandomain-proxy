@@ -1,5 +1,8 @@
 const express = require("express");
+const https = require("https");
+const http = require("http");
 const app = express();
+
 // Tillad alle origins (så din webapp kan kalde proxyen)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -15,12 +18,24 @@ app.get("/ordrer", async (req, res) => {
   }
 
   const today = new Date().toISOString().split("T")[0];
-  const url = `http://${shop}/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetOrdersByDateInterval/${today}T00:00:00/${today}T23:59:59/${site}`;
+  const path = `/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetOrdersByDateInterval/${today}T00:00:00/${today}T23:59:59/${site}`;
+
+  const options = { hostname: shop, path, method: "GET" };
 
   try {
-    const r = await fetch(url, { timeout: 15000 });
-    if (!r.ok) throw new Error(`DanDomain svarede med HTTP ${r.status}`);
-    const data = await r.json();
+    const data = await new Promise((resolve, reject) => {
+      const req = http.request(options, (r) => {
+        let body = "";
+        r.on("data", chunk => body += chunk);
+        r.on("end", () => {
+          try { resolve(JSON.parse(body)); }
+          catch(e) { reject(new Error("Kunne ikke parse svar: " + body.substring(0, 200))); }
+        });
+      });
+      req.on("error", reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error("Timeout")); });
+      req.end();
+    });
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
