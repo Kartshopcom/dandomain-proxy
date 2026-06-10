@@ -1,5 +1,4 @@
 const express = require("express");
-const app = express();
 
 // Tillad alle origins (så din webapp kan kalde proxyen)
 app.use((req, res, next) => {
