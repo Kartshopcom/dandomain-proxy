@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTK Ordre Tracker</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; min-height: 100vh; }
+.header { background: #fff; border-bottom: 1px solid #e0dfd8; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 16px; font-weight: 500; }
+.header .date { font-size: 13px; color: #888; margin-left: auto; }
+.setup { max-width: 480px; margin: 3rem auto; background: #fff; border-radius: 12px; border: 1px solid #e0dfd8; padding: 1.5rem; }
+.setup h2 { font-size: 15px; font-weight: 500; margin-bottom: 1rem; }
+.field { margin-bottom: 1rem; }
+.field label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; }
+.field input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
+.btn { width: 100%; padding: 10px; background: #1a1a18; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; }
+.btn:hover { background: #333; }
+.main { max-width: 960px; margin: 1.5rem auto; padding: 0 1rem; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 1.5rem; }
+.stat { background: #fff; border: 1px solid #e0dfd8; border-radius: 10px; padding: 14px 16px; }
+.stat .lbl { font-size: 12px; color: #888; margin-bottom: 4px; }
+.stat .val { font-size: 22px; font-weight: 500; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
+.refresh-btn { padding: 7px 14px; background: #fff; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.refresh-btn:hover { background: #f0efe8; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e0dfd8; font-size: 13px; }
+th { text-align: left; padding: 10px 14px; background: #f9f8f5; font-weight: 500; font-size: 12px; color: #666; border-bottom: 1px solid #e0dfd8; }
+td { padding: 11px 14px; border-bottom: 1px solid #f0efe8; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #fafaf7; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; }
+.badge-ok { background: #eaf3de; color: #3b6d11; }
+.badge-none { background: #f1efe8; color: #5f5e5a; }
+a { color: #185fa5; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.empty { text-align: center; padding: 3rem; color: #888; }
+.error { background: #fcebeb; border: 1px solid #f09595; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #a32d2d; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OTK Shop · Daglig ordre tracker</h1>
+  <span class="date" id="today"></span>
+</div>
+
+<div id="setup" class="setup">
+  <h2>Indtast API-nøgle</h2>
+  <div class="field">
+    <label>API-nøgle</label>
+    <input type="password" id="key" placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" />
+  </div>
+  <button class="btn" onclick="load()">Hent dagens ordrer</button>
+  <div id="err"></div>
+</div>
+
+<div id="main" class="main" style="display:none">
+  <div class="toolbar">
+    <span style="font-size:14px;font-weight:500">Dagens ordrer</span>
+    <button class="refresh-btn" onclick="load()">↻ Opdater</button>
+    <span style="font-size:12px;color:#888;margin-left:auto">Sidst opdateret: <span id="updated">—</span></span>
+    <button onclick="document.getElementById('setup').style.display='block';document.getElementById('main').style.display='none'" style="padding:7px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:12px;cursor:pointer;color:#666;">Afbryd</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="lbl">Ordrer i dag</div><div class="val" id="s-total">—</div></div>
+    <div class="stat"><div class="lbl">Med tracking</div><div class="val" id="s-track">—</div></div>
+    <div class="stat"><div class="lbl">Uden tracking</div><div class="val" id="s-none">—</div></div>
+  </div>
+  <table>
+    <thead><tr><th>Ordre #</th><th>Dato</th><th>Kunde</th><th>Tracking ID</th><th>Status</th><th>Link</th></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+document.getElementById('today').textContent = new Date().toLocaleDateString('da-DK', {weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+const PROXY = 'https://dandomain-proxy-production.up.railway.app';
+const SHOP = 'otkshop.dk';
+
+async function load() {
+  const key = document.getElementById('key').value.trim();
+  if (!key) { document.getElementById('err').innerHTML = '<div class="error">Indtast API-nøgle</div>'; return; }
+  document.getElementById('err').innerHTML = '';
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('main').style.display = 'block';
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="empty">Henter...</td></tr>';
+
+  const today = new Date().toISOString().split('T')[0];
+  const url = `${PROXY}/ordrer?shop=${SHOP}&key=${encodeURIComponent(key)}`;
+
+  try {
+    const r = await fetch(url);
+    const orders = await r.json();
+    if (orders.error) throw new Error(orders.error);
+    render(orders);
+    document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
+  } catch(e) {
+    document.getElementById('tbody').innerHTML = `<tr><td colspan="6" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
+  }
+}
+
+function render(orders) {
+  const tbody = document.getElementById('tbody');
+  if (!orders.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Ingen ordrer i dag</td></tr>'; return; }
+  let tracked = 0, rows = '';
+  for (const o of orders) {
+    const track = o.trackingNumber || '';
+    const date = (o.createdDate || '').replace(/\/Date\((\d+).*\)\//, (_, ms) => new Date(+ms).toLocaleDateString('da-DK'));
+    const name = (o.customerInfo && o.customerInfo.name) || '—';
+    if (track) tracked++;
+    rows += `<tr>
+      <td>#${o.id}</td>
+      <td>${date}</td>
+      <td>${name}</td>
+      <td>${track || '—'}</td>
+      <td>${track ? '<span class="badge badge-ok">Har tracking</span>' : '<span class="badge badge-none">Ingen tracking</span>'}</td>
+      <td>${track ? `<a href="https://parcelapp.com/track/${encodeURIComponent(track)}" target="_blank">Spor ↗</a>` : '—'}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = rows;
+  document.getElementById('s-total').textContent = orders.length;
+  document.getElementById('s-track').textContent = tracked;
+  document.getElementById('s-none').textContent = orders.length - tracked;
+}
+</script>
+</body>
+</html>
