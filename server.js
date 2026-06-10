@@ -9,7 +9,7 @@ app.use((req, res, next) => {
 app.get("/ordrer", async (req, res) => {
   const { shop, key, site } = req.query;
   const today = new Date().toISOString().split("T")[0];
-  const url = `https://api.dandomain.dk/order/v1_0/${key}/GetOrdersByDateInterval/${today}T00:00:00/${today}T23:59:59/${site}`;
+const url = `http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/${key}/GetByDateInterval/${today}T00:00:00/${today}T23:59:59`;
   try {
     const r = await fetch(url);
     const data = await r.json();
