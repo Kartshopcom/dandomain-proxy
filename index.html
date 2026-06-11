@@ -61,14 +61,11 @@ a.edit:hover { background: #1a4fa0; }
 <div id="setup" class="setup">
   <h2>Log ind</h2>
   <div class="field">
-    <label>DanDomain API-nøgle</label>
-    <input type="password" id="dd-key" placeholder="89d2be47-..." />
-  </div>
-  <div class="field">
-    <label>Webshipper API-nøgle</label>
-    <input type="password" id="ws-key" placeholder="268f2fb0..." />
+    <label>Adgangskode</label>
+    <input type="password" id="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')login()" />
   </div>
   <button class="btn" onclick="login()">Log ind</button>
+  <div id="login-error" style="color:#a32d2d;font-size:13px;margin-top:8px;"></div>
 </div>
 
 <!-- Ordrer side -->
@@ -134,10 +131,23 @@ function fmtDate(raw) {
   return ms ? new Date(+ms).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
 }
 
+// API nøgler gemt bag adgangskode
+const CREDENTIALS = {
+  "otk2026": {
+    dd: "89d2be47-b941-4feb-a243-e5c7cd634864",
+    ws: "268f2fb0b91d7e2153e5351d5551dd62875a3f6bcd20df95552528296354ecc2"
+  }
+};
+
 function login() {
-  ddKey = document.getElementById('dd-key').value.trim();
-  wsKey = document.getElementById('ws-key').value.trim();
-  if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
+  const pw = document.getElementById('password').value.trim();
+  const creds = CREDENTIALS[pw];
+  if (!creds) {
+    document.getElementById('login-error').textContent = 'Forkert adgangskode';
+    return;
+  }
+  ddKey = creds.dd;
+  wsKey = creds.ws;
   document.getElementById('setup').style.display = 'none';
   showPage('ordrer');
   loadOrdrer();
