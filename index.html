@@ -17,27 +17,31 @@ body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; 
 .field input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
 .btn { width: 100%; padding: 10px; background: #1a1a18; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; }
 .btn:hover { background: #333; }
-.main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1rem; }
+.main { max-width: 1200px; margin: 1.5rem auto; padding: 0 1rem; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.5rem; }
 .stat { background: #fff; border: 1px solid #e0dfd8; border-radius: 10px; padding: 14px 16px; }
 .stat .lbl { font-size: 12px; color: #888; margin-bottom: 4px; }
 .stat .val { font-size: 22px; font-weight: 500; }
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
 .refresh-btn { padding: 7px 14px; background: #fff; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.refresh-btn:hover { background: #f0efe8; }
 table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e0dfd8; font-size: 13px; }
 th { text-align: left; padding: 10px 14px; background: #f9f8f5; font-weight: 500; font-size: 12px; color: #666; border-bottom: 1px solid #e0dfd8; }
-td { padding: 11px 14px; border-bottom: 1px solid #f0efe8; vertical-align: middle; }
+td { padding: 10px 14px; border-bottom: 1px solid #f0efe8; vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #fafaf7; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 500; }
 .badge-ok { background: #eaf3de; color: #3b6d11; }
 .badge-none { background: #f1efe8; color: #5f5e5a; }
 .badge-warn { background: #faeeda; color: #854f0b; }
+.badge-transit { background: #ddeeff; color: #1a4fa0; }
 a.track { color: #185fa5; text-decoration: none; font-size: 12px; }
 a.track:hover { text-decoration: underline; }
 .empty { text-align: center; padding: 3rem; color: #888; }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.scan-desc { font-size: 12px; color: #333; }
+.scan-loc { font-size: 11px; color: #888; }
 </style>
 </head>
 <body>
@@ -69,8 +73,8 @@ a.track:hover { text-decoration: underline; }
   </div>
   <div class="stats">
     <div class="stat"><div class="lbl">Ordrer i alt</div><div class="val" id="s-total">—</div></div>
-    <div class="stat"><div class="lbl">Afsendt</div><div class="val" id="s-sent">—</div></div>
-    <div class="stat"><div class="lbl">Ikke afsendt</div><div class="val" id="s-unsent">—</div></div>
+    <div class="stat"><div class="lbl">Leveret</div><div class="val" id="s-delivered">—</div></div>
+    <div class="stat"><div class="lbl">Undervejs</div><div class="val" id="s-transit">—</div></div>
     <div class="stat"><div class="lbl">Ingen tracking</div><div class="val" id="s-notrack">—</div></div>
   </div>
   <table>
@@ -80,8 +84,10 @@ a.track:hover { text-decoration: underline; }
         <th>Dato</th>
         <th>Kunde</th>
         <th>Carrier</th>
-        <th>Status</th>
-        <th>Track</th>
+        <th>Seneste scan</th>
+        <th>Lokation</th>
+        <th>Tidspunkt</th>
+        <th>Link</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -90,9 +96,6 @@ a.track:hover { text-decoration: underline; }
 
 <script>
 const PROXY = 'https://dandomain-proxy-production.up.railway.app';
-const WS_KEY = () => document.getElementById('ws-key').value.trim();
-const DD_KEY = () => document.getElementById('dd-key').value.trim();
-
 document.getElementById('today').textContent = new Date().toLocaleDateString('da-DK', {weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
 function fmtDate(raw) {
@@ -100,12 +103,18 @@ function fmtDate(raw) {
   return ms ? new Date(+ms).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
 }
 
+function fmtTime(t) {
+  if (!t) return '—';
+  return new Date(t).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+}
+
 async function load() {
-  const ddKey = DD_KEY(), wsKey = WS_KEY();
+  const ddKey = document.getElementById('dd-key').value.trim();
+  const wsKey = document.getElementById('ws-key').value.trim();
   if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
   document.getElementById('setup').style.display = 'none';
   document.getElementById('main').style.display = 'block';
-  document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
 
   let orders = [];
   try {
@@ -113,18 +122,18 @@ async function load() {
     orders = await r.json();
     if (!Array.isArray(orders)) throw new Error(orders.error || 'Ukendt fejl');
   } catch(e) {
-    document.getElementById('tbody').innerHTML = `<tr><td colspan="6" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
+    document.getElementById('tbody').innerHTML = `<tr><td colspan="8" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
     return;
   }
 
-  document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
   document.getElementById('s-total').textContent = orders.length;
+  document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
 
-  // Vis ordrer straks med spinner på tracking
-  renderRows(orders, {});
+  // Vis ordrer med spinner
+  const trackMap = {}, scanMap = {};
+  renderRows(orders, trackMap, scanMap);
 
-  // Hent tracking parallelt for alle ordrer
-  const trackMap = {};
+  // Hent Webshipper tracking for alle ordrer parallelt
   await Promise.all(orders.map(async o => {
     try {
       const r = await fetch(`${PROXY}/tracking?ref=${o.id}&wsKey=${encodeURIComponent(wsKey)}`);
@@ -132,40 +141,52 @@ async function load() {
     } catch { trackMap[o.id] = { found: false }; }
   }));
 
-  renderRows(orders, trackMap);
+  renderRows(orders, trackMap, scanMap);
 
-  const sent = Object.values(trackMap).filter(t => t.found && t.status === 'dispatched').length;
-  const unsent = Object.values(trackMap).filter(t => t.found && t.status !== 'dispatched').length;
-  const notrack = Object.values(trackMap).filter(t => !t.found).length;
-  document.getElementById('s-sent').textContent = sent;
-  document.getElementById('s-unsent').textContent = unsent;
+  // Hent ParcelApp scan for ordrer med tracking nummer
+  await Promise.all(orders.map(async o => {
+    const t = trackMap[o.id];
+    if (!t || !t.found || !t.tracking_number) return;
+    try {
+      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}`);
+      scanMap[o.id] = await r.json();
+    } catch { scanMap[o.id] = null; }
+  }));
+
+  renderRows(orders, trackMap, scanMap);
+
+  // Opdater stats
+  const delivered = Object.values(scanMap).filter(s => s && s.status === 'delivered').length;
+  const transit = Object.values(scanMap).filter(s => s && s.status === 'transit').length;
+  const notrack = orders.filter(o => !trackMap[o.id] || !trackMap[o.id].found).length;
+  document.getElementById('s-delivered').textContent = delivered;
+  document.getElementById('s-transit').textContent = transit;
   document.getElementById('s-notrack').textContent = notrack;
 }
 
-function renderRows(orders, trackMap) {
+function renderRows(orders, trackMap, scanMap) {
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = orders.map(o => {
     const t = trackMap[o.id];
+    const s = scanMap[o.id];
     const name = (o.customerInfo && o.customerInfo.name) || '—';
-    let carrier = '—', badge, trackLink;
+    let carrier = '—', scanDesc = '—', location = '—', time = '—', trackLink = '—';
 
     if (!t) {
-      badge = '<span class="spinner"></span>';
-      trackLink = '—';
+      scanDesc = '<span class="spinner"></span>';
     } else if (!t.found) {
-      badge = '<span class="badge badge-none">Ikke i Webshipper</span>';
-      trackLink = '—';
-      carrier = '—';
+      scanDesc = '<span class="badge badge-none">Ikke i Webshipper</span>';
     } else {
       carrier = t.carrier || '—';
-      if (t.status === 'dispatched') {
-        badge = '<span class="badge badge-ok">Afsendt</span>';
+      trackLink = t.tracking_url ? `<a class="track" href="${t.tracking_url}" target="_blank">Spor ↗</a>` : '—';
+      if (!s) {
+        scanDesc = t.tracking_number ? '<span class="spinner"></span>' : '<span class="badge badge-none">Intet track nr.</span>';
       } else {
-        badge = `<span class="badge badge-warn">${t.status || 'Ukendt'}</span>`;
+        const badge = s.status === 'delivered' ? 'badge-ok' : s.status === 'transit' ? 'badge-transit' : 'badge-warn';
+        scanDesc = `<span class="badge ${badge}">${s.description || s.status || '—'}</span>`;
+        location = s.location || '—';
+        time = fmtTime(s.time);
       }
-      trackLink = t.tracking_url
-        ? `<a class="track" href="${t.tracking_url}" target="_blank">Spor ↗</a>`
-        : '—';
     }
 
     return `<tr>
@@ -173,7 +194,9 @@ function renderRows(orders, trackMap) {
       <td>${fmtDate(o.createdDate)}</td>
       <td>${name}</td>
       <td>${carrier}</td>
-      <td>${badge}</td>
+      <td>${scanDesc}</td>
+      <td>${location}</td>
+      <td>${time}</td>
       <td>${trackLink}</td>
     </tr>`;
   }).join('');
