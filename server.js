@@ -94,27 +94,10 @@ app.get("/scan", async (req, res) => {
         "Content-Type": "application/json",
         "Tracking-Api-Key": TM_KEY
       },
-      body: JSON.stringify({
-        tracking_number: trackingNumber,
-        language: "en"
-      })
+      body: JSON.stringify({ tracking_number: trackingNumber, language: "en" })
     });
     const data = await r.json();
-
-    if (data.meta && data.meta.code === 200 && data.data) {
-      const d = data.data;
-      const events = d.origin_info && d.origin_info.trackinfo || [];
-      const latest = events[0];
-      return res.json({
-        status: d.delivery_status || null,
-        description: latest ? latest.StatusDescription : null,
-        location: latest ? latest.Details : null,
-        time: latest ? latest.Date : null,
-        carrier: d.courier_code || null
-      });
-    }
-
-    res.json({ status: null, description: null, location: null });
+    res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
