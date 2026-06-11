@@ -52,18 +52,55 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
-// GLS tracking direkte
+// ParcelApp: hent seneste scan
 app.get("/scan", async (req, res) => {
-  const { trackingNumber, zip } = req.query;
+  const { trackingNumber, country } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
 
+  const destCountry = COUNTRY_MAP[country] || country || "Denmark";
+
+  const parse = (s) => {
+    const latest = s.states && s.states[0];
+    return {
+      status: s.status || null,
+      description: latest ? latest.status : null,
+      location: latest ? latest.location : null,
+      time: latest ? latest.date : null
+    };
+  };
+
   try {
-    const url = "https://gls-group.eu/app/service/open/rest/DK/da/rstt001?match=" + encodeURIComponent(trackingNumber) + (zip ? "&zip=" + encodeURIComponent(zip) : "");
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const text = await r.text();
-    
-    // Returner råtekst så vi kan se strukturen
-    res.send(text);
+    const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shipments: [{ trackingId: trackingNumber, destinationCountry: destCountry }],
+        language: "en",
+        apiKey: PARCEL_KEY
+      })
+    });
+    const initData = await initR.json();
+
+    if (initData.shipments && initData.shipments[0] && initData.shipments[0].states && initData.shipments[0].states.length > 0) {
+      return res.json(parse(initData.shipments[0]));
+    }
+
+    const uuid = initData.uuid;
+    if (!uuid) return res.json({ status: null, description: null, location: null });
+
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const pollR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking?uuid=" + uuid + "&apiKey=" + PARCEL_KEY);
+      const pollData = await pollR.json();
+      if (pollData.done) {
+        if (pollData.shipments && pollData.shipments[0]) {
+          return res.json(parse(pollData.shipments[0]));
+        }
+        return res.json({ status: null, description: null, location: null });
+      }
+    }
+
+    res.json({ status: null, description: null, location: null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
