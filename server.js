@@ -9,7 +9,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Webshipper: hent alle forsendelser fra de seneste 48 timer med tracking events
+// Webshipper: hent alle forsendelser fra de seneste 100
 app.get("/forsendelser", async (req, res) => {
   const { wsKey } = req.query;
   if (!wsKey) return res.status(400).json({ error: "Mangler wsKey" });
@@ -19,20 +19,27 @@ app.get("/forsendelser", async (req, res) => {
     Accept: "application/vnd.api+json"
   };
 
-  try {
-    // Hent forsendelser oprettet inden for 48 timer
-    const now = new Date();
-    const past48 = new Date(now - 48 * 60 * 60 * 1000).toISOString();
+  const extractTrackNum = (url) => {
+    if (!url) return null;
+    const m = url.match(/txtRefNo=([^&]+)/) ||
+              url.match(/[?&]id=([^&]+)/) ||
+              url.match(/tracknum=([^&]+)/) ||
+              url.match(/AWB=([^&]+)/) ||
+              url.match(/track[^=]*=([^&]+)/i);
+    return m ? m[1] : null;
+  };
 
+  try {
     const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[size]=100&sort=-created_at", { headers });
     const data = await r.json();
-
     if (!data.data) return res.json([]);
 
     const result = data.data.map(s => {
       const attrs = s.attributes;
       const tlink = attrs.tracking_links && attrs.tracking_links[0];
-      const latest = attrs.latest_status_event;
+      const trackingUrl = tlink ? tlink.url : null;
+      const trackingNumber = extractTrackNum(trackingUrl);
+      const countryCode = attrs.delivery_address ? attrs.delivery_address.country_code : "DK";
 
       return {
         id: s.id,
@@ -40,10 +47,9 @@ app.get("/forsendelser", async (req, res) => {
         carrier: attrs.carrier_alias,
         status: attrs.status,
         created_at: attrs.created_at,
-        tracking_url: tlink ? tlink.url : null,
-        latest_description: latest ? latest.description : null,
-        latest_location: latest ? latest.location : null,
-        latest_time: latest ? latest.event_time : null,
+        tracking_url: trackingUrl,
+        tracking_number: trackingNumber,
+        country_code: countryCode,
         customer: attrs.delivery_address ? attrs.delivery_address.att_contact : null
       };
     });
