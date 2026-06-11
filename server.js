@@ -24,7 +24,7 @@ app.get("/forsendelser", async (req, res) => {
     const now = new Date();
     const past48 = new Date(now - 48 * 60 * 60 * 1000).toISOString();
 
-    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?filter[created_after]=" + encodeURIComponent(past48) + "&page[size]=100", { headers });
+    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[size]=100&sort=-created_at", { headers });
     const data = await r.json();
 
     if (!data.data) return res.json([]);
