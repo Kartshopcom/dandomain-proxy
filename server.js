@@ -32,24 +32,41 @@ app.get("/tracking", async (req, res) => {
   const { ref, wsKey } = req.query;
   if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
   const headers = { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" };
-  try {
-    const r = await fetch(`https://otk.api.webshipper.io/v2/shipments?filter[reference]=O${ref}`, { headers });
+
+  const extractTrackNum = (url) => {
+    if (!url) return null;
+    const m = url.match(/txtRefNo=([^&]+)/) ||
+              url.match(/[?&]id=([^&]+)/) ||
+              url.match(/tracknum=([^&]+)/) ||
+              url.match(/AWB=([^&]+)/) ||
+              url.match(/track[^=]*=([^&]+)/i);
+    return m ? m[1] : null;
+  };
+
+  const tryFind = async (filterVal) => {
+    const r = await fetch(`https://otk.api.webshipper.io/v2/shipments?filter[reference]=${encodeURIComponent(filterVal)}`, { headers });
     const data = await r.json();
-    const shipment = data.data && data.data[0];
+    return data.data && data.data[0];
+  };
+
+  try {
+    // Prøv O121210, 121210, og O0121210
+    let shipment = await tryFind(`O${ref}`) || await tryFind(ref) || await tryFind(`O0${ref}`);
+
     if (!shipment) return res.json({ found: false });
+
     const attrs = shipment.attributes;
     const tlink = attrs.tracking_links && attrs.tracking_links[0];
-    let trackingNumber = null;
-    if (tlink) {
-      const m = tlink.url.match(/txtRefNo=([^&]+)/) || tlink.url.match(/tracknum=([^&]+)/) || tlink.url.match(/track[^=]*=([^&]+)/i);
-      if (m) trackingNumber = m[1];
-    }
+    const trackingNumber = extractTrackNum(tlink ? tlink.url : null);
+    const country = attrs.delivery_address ? attrs.delivery_address.country_code : "DK";
+
     res.json({
       found: true,
       status: attrs.status,
       carrier: attrs.carrier_alias,
       tracking_number: trackingNumber,
-      tracking_url: tlink ? tlink.url : null
+      tracking_url: tlink ? tlink.url : null,
+      destination_country: country
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -61,23 +78,21 @@ app.get("/scan", async (req, res) => {
   const { trackingNumber, country } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
 
-  const parse = s => {
-    const latest = s.states && s.states[0];
-    return {
-      status: s.status || null,
-      description: latest ? latest.status : null,
-      location: latest ? latest.location : null,
-      time: latest ? latest.date : null,
-      carrier: s.carrier ? s.carrier.name : null
-    };
+  const countryMap = {
+    "DK": "Denmark", "DE": "Germany", "SE": "Sweden", "NO": "Norway",
+    "FI": "Finland", "GB": "United Kingdom", "US": "United States",
+    "FR": "France", "NL": "Netherlands", "BE": "Belgium", "IT": "Italy",
+    "ES": "Spain", "AT": "Austria", "CH": "Switzerland", "PL": "Poland",
+    "CZ": "Czech Republic", "SK": "Slovakia", "HU": "Hungary", "RO": "Romania",
+    "PT": "Portugal", "EE": "Estonia", "LV": "Latvia", "LT": "Lithuania",
+    "JP": "Japan", "AU": "Australia", "CA": "Canada"
   };
 
-  try {
-    const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
+  const destCountry = countryMap[country] || country || "Denmark";
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        shipments: [{ trackingId: trackingNumber, destinationCountry: country || "Denmark" }],
+        shipments: [{ trackingId: trackingNumber, destinationCountry: destCountry }],
         language: "en",
         apiKey: PARCEL_KEY
       })
