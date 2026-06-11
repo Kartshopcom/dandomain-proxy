@@ -28,7 +28,7 @@ app.get("/ordrer", async (req, res) => {
 app.get("/ws-debug", async (req, res) => {
   const { wsKey } = req.query;
   const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[limit]=1", {
-    headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/json" }
+    headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" }
   });
   const data = await r.json();
   res.json(data);
@@ -41,7 +41,7 @@ app.get("/tracking", async (req, res) => {
   const url = `https://otk.api.webshipper.io/v2/shipments?filter[tracking_number]=${encodeURIComponent(trackingNumber)}`;
   try {
     const r = await fetch(url, {
-      headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/json" }
+      headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" }
     });
     const data = await r.json();
     const shipment = data.data && data.data[0];
