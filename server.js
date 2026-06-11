@@ -24,23 +24,28 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
+// Webshipper: debug - se rå struktur fra API
+app.get("/ws-debug", async (req, res) => {
+  const { wsKey } = req.query;
+  const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[limit]=1", {
+    headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/json" }
+  });
+  const data = await r.json();
+  res.json(data);
+});
+
 // Webshipper: hent seneste tracking for et tracking-nummer
 app.get("/tracking", async (req, res) => {
   const { trackingNumber, wsKey } = req.query;
   if (!trackingNumber || !wsKey) return res.status(400).json({ error: "Mangler trackingNumber eller wsKey" });
-
   const url = `https://otk.api.webshipper.io/v2/shipments?filter[tracking_number]=${encodeURIComponent(trackingNumber)}`;
   try {
     const r = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${wsKey}`,
-        Accept: "application/json"
-      }
+      headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/json" }
     });
     const data = await r.json();
     const shipment = data.data && data.data[0];
     if (!shipment) return res.json({ status: null, location: null });
-
     const events = shipment.attributes.tracking_events || [];
     const latest = events[0] || null;
     res.json({
