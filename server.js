@@ -84,8 +84,34 @@ app.get("/forsendelser", async (req, res) => {
 
 // TrackingMore: hent seneste scan
 app.get("/scan", async (req, res) => {
-  const { trackingNumber } = req.query;
+  const { trackingNumber, carrier } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
+
+  // Map carrier navn til TrackingMore courier kode
+  const CARRIER_MAP = {
+    "gls": "gls",
+    "ups": "ups",
+    "dhl": "dhl",
+    "dhl express": "dhl-express",
+    "fedex": "fedex",
+    "dsv": "dsv",
+    "dsv xpress": "dsv",
+    "postnord": "postnord-denmark",
+    "bring": "bring",
+    "dao": "dao-denmark"
+  };
+
+  const carrierKey = (carrier || "").toLowerCase();
+  let courierCode = CARRIER_MAP[carrierKey] || null;
+
+  // Gæt courier fra tracking nummer format hvis ikke fundet
+  if (!courierCode) {
+    if (/^1Z/i.test(trackingNumber)) courierCode = "ups";
+    else if (/^JD|^1234/i.test(trackingNumber)) courierCode = "dhl-express";
+    else if (/^0432|^0922/i.test(trackingNumber)) courierCode = "gls";
+    else if (/^[0-9]{9,11}$/.test(trackingNumber)) courierCode = "dsv";
+    else courierCode = "ups";
+  }
 
   try {
     const r = await fetch("https://api.trackingmore.com/v4/trackings/create", {
@@ -94,10 +120,23 @@ app.get("/scan", async (req, res) => {
         "Content-Type": "application/json",
         "Tracking-Api-Key": TM_KEY
       },
-      body: JSON.stringify({ tracking_number: trackingNumber, language: "en" })
+      body: JSON.stringify({ tracking_number: trackingNumber, courier_code: courierCode, language: "en" })
     });
     const data = await r.json();
-    res.json(data);
+
+    if (data.meta && data.meta.code === 200 && data.data) {
+      const d = data.data;
+      const events = d.origin_info && d.origin_info.trackinfo || [];
+      const latest = events[0];
+      return res.json({
+        status: d.delivery_status || null,
+        description: latest ? latest.StatusDescription : null,
+        location: latest ? latest.Details : null,
+        time: latest ? latest.Date : null
+      });
+    }
+
+    res.json({ raw: data });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
