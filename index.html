@@ -24,7 +24,6 @@ body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; 
 .stat .val { font-size: 22px; font-weight: 500; }
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
 .refresh-btn { padding: 7px 14px; background: #fff; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; cursor: pointer; }
-.refresh-btn:hover { background: #f0efe8; }
 table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e0dfd8; font-size: 13px; }
 th { text-align: left; padding: 10px 14px; background: #f9f8f5; font-weight: 500; font-size: 12px; color: #666; border-bottom: 1px solid #e0dfd8; }
 td { padding: 11px 14px; border-bottom: 1px solid #f0efe8; vertical-align: middle; }
@@ -34,10 +33,10 @@ tr:hover td { background: #fafaf7; }
 .badge-ok { background: #eaf3de; color: #3b6d11; }
 .badge-none { background: #f1efe8; color: #5f5e5a; }
 .badge-warn { background: #faeeda; color: #854f0b; }
-.track-info { font-size: 12px; color: #555; }
-.track-loc { font-weight: 500; color: #1a1a18; }
+a.track { color: #185fa5; text-decoration: none; font-size: 12px; }
+a.track:hover { text-decoration: underline; }
 .empty { text-align: center; padding: 3rem; color: #888; }
-.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin 0.7s linear infinite; }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
@@ -56,7 +55,7 @@ tr:hover td { background: #fafaf7; }
   </div>
   <div class="field">
     <label>Webshipper API-nøgle</label>
-    <input type="password" id="ws-key" placeholder="e9ad910..." />
+    <input type="password" id="ws-key" placeholder="268f2fb0..." />
   </div>
   <button class="btn" onclick="load()">Hent ordrer (48 timer)</button>
 </div>
@@ -66,13 +65,13 @@ tr:hover td { background: #fafaf7; }
     <span style="font-size:14px;font-weight:500">Ordrer — seneste 48 timer</span>
     <button class="refresh-btn" onclick="load()">↻ Opdater</button>
     <span style="font-size:12px;color:#888;margin-left:auto">Sidst opdateret: <span id="updated">—</span></span>
-    <button onclick="document.getElementById('setup').style.display='block';document.getElementById('main').style.display='none'" style="padding:7px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:12px;cursor:pointer;color:#666;">Skift nøgler</button>
+    <button onclick="document.getElementById('setup').style.display='block';document.getElementById('main').style.display='none'" style="padding:7px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:12px;cursor:pointer;">Skift nøgler</button>
   </div>
   <div class="stats">
     <div class="stat"><div class="lbl">Ordrer i alt</div><div class="val" id="s-total">—</div></div>
-    <div class="stat"><div class="lbl">Med tracking</div><div class="val" id="s-track">—</div></div>
-    <div class="stat"><div class="lbl">Scannet</div><div class="val" id="s-scanned">—</div></div>
-    <div class="stat"><div class="lbl">Ikke scannet</div><div class="val" id="s-none">—</div></div>
+    <div class="stat"><div class="lbl">Afsendt</div><div class="val" id="s-sent">—</div></div>
+    <div class="stat"><div class="lbl">Ikke afsendt</div><div class="val" id="s-unsent">—</div></div>
+    <div class="stat"><div class="lbl">Ingen tracking</div><div class="val" id="s-notrack">—</div></div>
   </div>
   <table>
     <thead>
@@ -80,10 +79,9 @@ tr:hover td { background: #fafaf7; }
         <th>Ordre #</th>
         <th>Dato</th>
         <th>Kunde</th>
-        <th>Tracking ID</th>
-        <th>Seneste scan</th>
-        <th>Lokation</th>
-        <th>Tidspunkt</th>
+        <th>Carrier</th>
+        <th>Status</th>
+        <th>Track</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -92,6 +90,9 @@ tr:hover td { background: #fafaf7; }
 
 <script>
 const PROXY = 'https://dandomain-proxy-production.up.railway.app';
+const WS_KEY = () => document.getElementById('ws-key').value.trim();
+const DD_KEY = () => document.getElementById('dd-key').value.trim();
+
 document.getElementById('today').textContent = new Date().toLocaleDateString('da-DK', {weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
 function fmtDate(raw) {
@@ -100,12 +101,11 @@ function fmtDate(raw) {
 }
 
 async function load() {
-  const ddKey = document.getElementById('dd-key').value.trim();
-  const wsKey = document.getElementById('ws-key').value.trim();
+  const ddKey = DD_KEY(), wsKey = WS_KEY();
   if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
   document.getElementById('setup').style.display = 'none';
   document.getElementById('main').style.display = 'block';
-  document.getElementById('tbody').innerHTML = '<tr><td colspan="7" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
 
   let orders = [];
   try {
@@ -113,68 +113,68 @@ async function load() {
     orders = await r.json();
     if (!Array.isArray(orders)) throw new Error(orders.error || 'Ukendt fejl');
   } catch(e) {
-    document.getElementById('tbody').innerHTML = `<tr><td colspan="7" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
+    document.getElementById('tbody').innerHTML = `<tr><td colspan="6" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
     return;
   }
 
   document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
   document.getElementById('s-total').textContent = orders.length;
 
-  const withTracking = orders.filter(o => o.trackingNumber);
-  document.getElementById('s-track').textContent = withTracking.length;
-
-  // Vis ordrer straks, tracking hentes bagefter
+  // Vis ordrer straks med spinner på tracking
   renderRows(orders, {});
-  document.getElementById('s-scanned').textContent = '...';
-  document.getElementById('s-none').textContent = '...';
 
-  // Hent tracking for alle ordrer med tracking-nummer
-  const trackingData = {};
-  await Promise.all(withTracking.map(async o => {
+  // Hent tracking parallelt for alle ordrer
+  const trackMap = {};
+  await Promise.all(orders.map(async o => {
     try {
-      const r = await fetch(`${PROXY}/tracking?trackingNumber=${encodeURIComponent(o.trackingNumber)}&wsKey=${encodeURIComponent(wsKey)}`);
-      trackingData[o.id] = await r.json();
-    } catch(e) {
-      trackingData[o.id] = null;
-    }
+      const r = await fetch(`${PROXY}/tracking?ref=${o.id}&wsKey=${encodeURIComponent(wsKey)}`);
+      trackMap[o.id] = await r.json();
+    } catch { trackMap[o.id] = { found: false }; }
   }));
 
-  renderRows(orders, trackingData);
-  const scanned = Object.values(trackingData).filter(t => t && t.status).length;
-  document.getElementById('s-scanned').textContent = scanned;
-  document.getElementById('s-none').textContent = withTracking.length - scanned;
+  renderRows(orders, trackMap);
+
+  const sent = Object.values(trackMap).filter(t => t.found && t.status === 'dispatched').length;
+  const unsent = Object.values(trackMap).filter(t => t.found && t.status !== 'dispatched').length;
+  const notrack = Object.values(trackMap).filter(t => !t.found).length;
+  document.getElementById('s-sent').textContent = sent;
+  document.getElementById('s-unsent').textContent = unsent;
+  document.getElementById('s-notrack').textContent = notrack;
 }
 
-function renderRows(orders, trackingData) {
+function renderRows(orders, trackMap) {
   const tbody = document.getElementById('tbody');
-  if (!orders.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Ingen ordrer fundet</td></tr>'; return; }
   tbody.innerHTML = orders.map(o => {
-    const track = o.trackingNumber || '';
-    const td = trackingData[o.id];
+    const t = trackMap[o.id];
     const name = (o.customerInfo && o.customerInfo.name) || '—';
-    let scanBadge, location, time;
-    if (!track) {
-      scanBadge = '<span class="badge badge-none">Intet tracking</span>';
-      location = '—'; time = '—';
-    } else if (!td) {
-      scanBadge = '<span class="spinner"></span>';
-      location = '—'; time = '—';
-    } else if (td.status) {
-      scanBadge = `<span class="badge badge-ok">${td.status}</span>`;
-      location = `<span class="track-loc">${td.location || '—'}</span>`;
-      time = td.time ? new Date(td.time).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    let carrier = '—', badge, trackLink;
+
+    if (!t) {
+      badge = '<span class="spinner"></span>';
+      trackLink = '—';
+    } else if (!t.found) {
+      badge = '<span class="badge badge-none">Ikke i Webshipper</span>';
+      trackLink = '—';
+      carrier = '—';
     } else {
-      scanBadge = '<span class="badge badge-warn">Ingen scan endnu</span>';
-      location = '—'; time = '—';
+      carrier = t.carrier || '—';
+      if (t.status === 'dispatched') {
+        badge = '<span class="badge badge-ok">Afsendt</span>';
+      } else {
+        badge = `<span class="badge badge-warn">${t.status || 'Ukendt'}</span>`;
+      }
+      trackLink = t.tracking_url
+        ? `<a class="track" href="${t.tracking_url}" target="_blank">Spor ↗</a>`
+        : '—';
     }
+
     return `<tr>
       <td>#${o.id}</td>
       <td>${fmtDate(o.createdDate)}</td>
       <td>${name}</td>
-      <td>${track || '—'}</td>
-      <td>${scanBadge}</td>
-      <td>${location}</td>
-      <td>${time}</td>
+      <td>${carrier}</td>
+      <td>${badge}</td>
+      <td>${trackLink}</td>
     </tr>`;
   }).join('');
 }
