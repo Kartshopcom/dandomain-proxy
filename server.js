@@ -112,33 +112,20 @@ app.get("/scan", async (req, res) => {
     const data = await r.json();
 
     if (data.meta && data.meta.code === 200 && data.data) {
-      const d = data.data;
-      return res.json({
-        status: d.delivery_status || null,
-        description: d.latest_event || null,
-        location: d.location_info ? (d.location_info.destination_country || null) : null,
-        time: d.latest_event_time || null
-      });
+      return res.json({ raw: data.data });
     }
 
-    // Tracking nummer eksisterer allerede — hent det
     if (data.meta && data.meta.code === 4013) {
       const r2 = await fetch("https://api.trackingmore.com/v4/trackings/get?tracking_numbers=" + encodeURIComponent(trackingNumber) + "&courier_code=" + courierCode, {
         headers: { "Tracking-Api-Key": TM_KEY }
       });
       const data2 = await r2.json();
       if (data2.data && data2.data.length > 0) {
-        const d = data2.data[0];
-        return res.json({
-          status: d.delivery_status || null,
-          description: d.latest_event || null,
-          location: d.location_info ? (d.location_info.destination_country || null) : null,
-          time: d.latest_event_time || null
-        });
+        return res.json({ raw: data2.data[0] });
       }
     }
 
-    res.json({ status: null, description: null, location: null });
+    res.json({ raw: data });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
