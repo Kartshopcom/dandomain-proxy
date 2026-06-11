@@ -27,7 +27,7 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
-// Webshipper: hent tracking URL for en ordre
+// Webshipper: hent tracking info for en ordre
 app.get("/tracking", async (req, res) => {
   const { ref, wsKey } = req.query;
   if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
@@ -39,7 +39,6 @@ app.get("/tracking", async (req, res) => {
     if (!shipment) return res.json({ found: false });
     const attrs = shipment.attributes;
     const tlink = attrs.tracking_links && attrs.tracking_links[0];
-    // Udtræk tracking nummer fra URL
     let trackingNumber = null;
     if (tlink) {
       const m = tlink.url.match(/txtRefNo=([^&]+)/) || tlink.url.match(/tracknum=([^&]+)/) || tlink.url.match(/track[^=]*=([^&]+)/i);
@@ -57,25 +56,24 @@ app.get("/tracking", async (req, res) => {
   }
 });
 
-// ParcelApp: hent seneste scan for et tracking nummer
+// ParcelApp: hent seneste scan
 app.get("/scan", async (req, res) => {
-  const { trackingNumber } = req.query;
+  const { trackingNumber, country } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
 
   try {
-    // Trin 1: Start tracking
     const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        shipments: [{ trackingId: trackingNumber }],
+        shipments: [{ trackingId: trackingNumber, destinationCountry: country || "Denmark" }],
         language: "en",
         apiKey: PARCEL_KEY
       })
     });
     const initData = await initR.json();
 
-    // Hvis cached data allerede returneret
+    // Returnér cached data hvis tilgængeligt
     if (initData.shipments && initData.shipments[0]) {
       const s = initData.shipments[0];
       const latest = s.events && s.events[0];
@@ -88,10 +86,10 @@ app.get("/scan", async (req, res) => {
     }
 
     const uuid = initData.uuid;
-    if (!uuid) return res.json({ status: null, description: null });
+    if (!uuid) return res.json({ status: null, description: null, location: null });
 
-    // Trin 2: Poll indtil done (max 8 sekunder)
-    for (let i = 0; i < 8; i++) {
+    // Poll indtil done (max 10 sekunder)
+    for (let i = 0; i < 10; i++) {
       await new Promise(r => setTimeout(r, 1000));
       const pollR = await fetch(`https://parcelsapp.com/api/v3/shipments/tracking?uuid=${uuid}&apiKey=${PARCEL_KEY}`);
       const pollData = await pollR.json();
