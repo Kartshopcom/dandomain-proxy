@@ -72,7 +72,7 @@ app.get("/scan", async (req, res) => {
   try {
     // GLS
     if (!carrier || carrier.toLowerCase().includes("gls")) {
-      const r = await fetch(`https://gls-group.eu/app/service/open/rest/DK/da/rstt001?match=${trackingNumber}`);
+      const r = await fetch(`https://api.gls-group.eu/app/service/open/rest/GROUP/en/rstt001?match=${trackingNumber}`);
       const data = await r.json();
       const events = data.tuStatus && data.tuStatus[0] && data.tuStatus[0].history || [];
       const latest = events[0];
