@@ -70,9 +70,9 @@ a.track:hover { background: #333; }
   </div>
   <div class="stats">
     <div class="stat"><div class="lbl">Ordrer i alt</div><div class="val" id="s-total">—</div></div>
-    <div class="stat"><div class="lbl">Leveret</div><div class="val" id="s-delivered">—</div></div>
-    <div class="stat"><div class="lbl">Undervejs</div><div class="val" id="s-transit">—</div></div>
-    <div class="stat"><div class="lbl">Ikke afsendt</div><div class="val" id="s-notrack">—</div></div>
+    <div class="stat"><div class="lbl">Afsendt</div><div class="val" id="s-sent">—</div></div>
+    <div class="stat"><div class="lbl">Ikke afsendt</div><div class="val" id="s-unsent">—</div></div>
+    <div class="stat"><div class="lbl">Tracking link</div><div class="val" id="s-track">—</div></div>
   </div>
   <table>
     <thead>
@@ -81,9 +81,9 @@ a.track:hover { background: #333; }
         <th>Dato</th>
         <th>Kunde</th>
         <th>Carrier</th>
+        <th>Status</th>
         <th>Seneste scan</th>
         <th>Lokation</th>
-        <th>Tidspunkt</th>
         <th>Link</th>
       </tr>
     </thead>
@@ -104,98 +104,75 @@ function fmtTime(t) {
   return new Date(t).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 }
 
-let orders = [], wsKey = '';
-const wsMap = {}, scanMap = {};
-
 async function load() {
   const ddKey = document.getElementById('dd-key').value.trim();
-  wsKey = document.getElementById('ws-key').value.trim();
+  const wsKey = document.getElementById('ws-key').value.trim();
   if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
   document.getElementById('setup').style.display = 'none';
   document.getElementById('main').style.display = 'block';
   document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
 
+  // Hent DanDomain ordrer og Webshipper forsendelser parallelt
+  let orders = [], shipments = [];
   try {
-    const r = await fetch(PROXY + '/ordrer?key=' + encodeURIComponent(ddKey));
-    orders = await r.json();
-    if (!Array.isArray(orders)) throw new Error(orders.error || 'Ukendt fejl');
+    const [r1, r2] = await Promise.all([
+      fetch(PROXY + '/ordrer?key=' + encodeURIComponent(ddKey)),
+      fetch(PROXY + '/forsendelser?wsKey=' + encodeURIComponent(wsKey))
+    ]);
+    orders = await r1.json();
+    shipments = await r2.json();
+    if (!Array.isArray(orders)) throw new Error(orders.error || 'DanDomain fejl');
+    if (!Array.isArray(shipments)) throw new Error(shipments.error || 'Webshipper fejl');
   } catch(e) {
     document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
     return;
   }
 
-  document.getElementById('s-total').textContent = orders.length;
   document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
-  renderRows();
+  document.getElementById('s-total').textContent = orders.length;
 
-  // Hent Webshipper tracking for alle ordrer parallelt
-  await Promise.all(orders.map(async o => {
-    try {
-      const r = await fetch(PROXY + '/tracking?ref=' + o.id + '&wsKey=' + encodeURIComponent(wsKey));
-      wsMap[o.id] = await r.json();
-    } catch {
-      wsMap[o.id] = { found: false };
+  // Byg lookup: reference -> forsendelse
+  const shipMap = {};
+  for (const s of shipments) {
+    if (s.reference) {
+      // Reference kan være "O121184" eller "121184"
+      const key = s.reference.replace(/^O0?/, '');
+      shipMap[key] = s;
     }
-    renderRows();
-  }));
-
-  // Opdater stats
-  updateStats();
-
-  // Hent ParcelApp scan for ordrer med tracking nummer
-  const toScan = orders.filter(o => wsMap[o.id] && wsMap[o.id].found && wsMap[o.id].tracking_number);
-  for (const o of toScan) {
-    const t = wsMap[o.id];
-    try {
-      const r = await fetch(PROXY + '/scan?trackingNumber=' + encodeURIComponent(t.tracking_number) + '&country=' + encodeURIComponent(t.country_code || 'DK'));
-      scanMap[o.id] = await r.json();
-    } catch {
-      scanMap[o.id] = null;
-    }
-    renderRows();
-    updateStats();
   }
-}
 
-function updateStats() {
-  const delivered = Object.values(scanMap).filter(s => s && s.status === 'delivered').length;
-  const transit = Object.values(scanMap).filter(s => s && s.status === 'transit').length;
-  const notrack = orders.filter(o => !wsMap[o.id] || !wsMap[o.id].found).length;
-  document.getElementById('s-delivered').textContent = delivered;
-  document.getElementById('s-transit').textContent = transit;
-  document.getElementById('s-notrack').textContent = notrack;
-}
+  // Stats
+  const sent = orders.filter(o => shipMap[String(o.id)]).length;
+  const unsent = orders.length - sent;
+  const withLink = orders.filter(o => shipMap[String(o.id)] && shipMap[String(o.id)].tracking_url).length;
+  document.getElementById('s-sent').textContent = sent;
+  document.getElementById('s-unsent').textContent = unsent;
+  document.getElementById('s-track').textContent = withLink;
 
-function renderRows() {
-  const tbody = document.getElementById('tbody');
-  tbody.innerHTML = orders.map(o => {
+  // Render
+  document.getElementById('tbody').innerHTML = orders.map(o => {
     const name = (o.customerInfo && o.customerInfo.name) || '—';
-    const t = wsMap[o.id];
-    const s = scanMap[o.id];
+    const s = shipMap[String(o.id)];
 
-    let carrier = '—', scan = '—', location = '—', time = '—', link = '—';
-
-    if (!t) {
-      scan = '<span class="spinner"></span>';
-    } else if (!t.found) {
-      scan = '<span class="badge badge-none">Ikke afsendt</span>';
-    } else {
-      carrier = t.carrier || '—';
-      link = t.tracking_url ? '<a class="track" href="' + t.tracking_url + '" target="_blank">Spor ↗</a>' : '—';
-
-      if (s === undefined) {
-        scan = t.tracking_number ? '<span class="spinner"></span>' : '<span class="badge badge-none">Intet track nr.</span>';
-      } else if (!s || !s.description) {
-        scan = '<span class="badge badge-warn">Ingen scan endnu</span>';
-      } else {
-        const badge = s.status === 'delivered' ? 'badge-ok' : s.status === 'transit' ? 'badge-transit' : 'badge-warn';
-        scan = '<span class="badge ' + badge + '">' + s.description + '</span>';
-        location = s.location || '—';
-        time = fmtTime(s.time);
-      }
+    if (!s) {
+      return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>—</td><td><span class="badge badge-none">Ikke afsendt</span></td><td>—</td><td>—</td><td>—</td></tr>';
     }
 
-    return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>' + carrier + '</td><td>' + scan + '</td><td>' + location + '</td><td>' + time + '</td><td>' + link + '</td></tr>';
+    const statusBadge = s.status === 'dispatched'
+      ? '<span class="badge badge-transit">Afsendt</span>'
+      : s.status === 'delivered'
+      ? '<span class="badge badge-ok">Leveret</span>'
+      : '<span class="badge badge-warn">' + (s.status || '—') + '</span>';
+
+    const scan = s.latest_description
+      ? '<span class="badge badge-transit">' + s.latest_description + '</span>'
+      : '<span class="badge badge-none">Ingen scan endnu</span>';
+
+    const link = s.tracking_url
+      ? '<a class="track" href="' + s.tracking_url + '" target="_blank">Spor ↗</a>'
+      : '—';
+
+    return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>' + (s.carrier || '—') + '</td><td>' + statusBadge + '</td><td>' + scan + '</td><td>' + (s.latest_location || '—') + '</td><td>' + link + '</td></tr>';
   }).join('');
 }
 </script>
