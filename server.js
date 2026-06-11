@@ -22,17 +22,24 @@ const COUNTRY_MAP = {
   "HR": "Croatia", "SI": "Slovenia", "BG": "Bulgaria", "GR": "Greece"
 };
 
-// DanDomain: hent ordrer fra de seneste 48 timer
+// DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29)
 app.get("/ordrer", async (req, res) => {
   const { key } = req.query;
   const now = new Date();
   const past48 = new Date(now - 48 * 60 * 60 * 1000);
   const fmt = d => d.toISOString().split(".")[0];
-  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/" + key + "/GetByDateInterval?start=" + fmt(past48) + "&end=" + fmt(now);
+  const base = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/OrderService/" + key + "/GetByDateInterval?start=" + fmt(past48) + "&end=" + fmt(now);
   try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const text = await r.text();
-    res.send(text);
+    const [r26, r29] = await Promise.all([
+      fetch(base + "&site=26", { headers: { Accept: "application/json" } }),
+      fetch(base + "&site=29", { headers: { Accept: "application/json" } })
+    ]);
+    const [t26, t29] = await Promise.all([r26.text(), r29.text()]);
+    const o26 = JSON.parse(t26) || [];
+    const o29 = JSON.parse(t29) || [];
+    const merged = [...(Array.isArray(o26) ? o26 : []), ...(Array.isArray(o29) ? o29 : [])];
+    merged.sort((a, b) => a.id - b.id);
+    res.json(merged);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
