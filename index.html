@@ -35,13 +35,9 @@ tr:hover td { background: #fafaf7; }
 .badge-none { background: #f1efe8; color: #5f5e5a; }
 .badge-warn { background: #faeeda; color: #854f0b; }
 .badge-transit { background: #ddeeff; color: #1a4fa0; }
-a.track { color: #185fa5; text-decoration: none; font-size: 12px; }
-a.track:hover { text-decoration: underline; }
 .empty { text-align: center; padding: 3rem; color: #888; }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.scan-desc { font-size: 12px; color: #333; }
-.scan-loc { font-size: 11px; color: #888; }
 </style>
 </head>
 <body>
@@ -56,10 +52,6 @@ a.track:hover { text-decoration: underline; }
   <div class="field">
     <label>DanDomain API-nøgle</label>
     <input type="password" id="dd-key" placeholder="89d2be47-..." />
-  </div>
-  <div class="field">
-    <label>Webshipper API-nøgle</label>
-    <input type="password" id="ws-key" placeholder="268f2fb0..." />
   </div>
   <button class="btn" onclick="load()">Hent ordrer (48 timer)</button>
 </div>
@@ -83,11 +75,9 @@ a.track:hover { text-decoration: underline; }
         <th>Ordre #</th>
         <th>Dato</th>
         <th>Kunde</th>
-        <th>Carrier</th>
         <th>Seneste scan</th>
         <th>Lokation</th>
         <th>Tidspunkt</th>
-        <th>Link</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -108,104 +98,73 @@ function fmtTime(t) {
   return new Date(t).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 }
 
+let orders = [];
+const scanMap = {};
+
 async function load() {
   const ddKey = document.getElementById('dd-key').value.trim();
-  const wsKey = document.getElementById('ws-key').value.trim();
-  if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
+  if (!ddKey) return alert('Udfyld API-nøgle');
   document.getElementById('setup').style.display = 'none';
   document.getElementById('main').style.display = 'block';
-  document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
 
-  let orders = [];
   try {
-    const r = await fetch(`${PROXY}/ordrer?key=${encodeURIComponent(ddKey)}`);
+    const r = await fetch(PROXY + '/ordrer?key=' + encodeURIComponent(ddKey));
     orders = await r.json();
     if (!Array.isArray(orders)) throw new Error(orders.error || 'Ukendt fejl');
   } catch(e) {
-    document.getElementById('tbody').innerHTML = `<tr><td colspan="8" class="empty" style="color:#a32d2d">Fejl: ${e.message}</td></tr>`;
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
     return;
   }
 
   document.getElementById('s-total').textContent = orders.length;
   document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
 
-  // Vis ordrer med spinner
-  const trackMap = {}, scanMap = {};
-  renderRows(orders, trackMap, scanMap);
+  // Vis ordrer straks
+  renderRows();
 
-  // Brug trackingNumber direkte fra DanDomain
-  await Promise.all(orders.map(async o => {
-    const ddTrack = o.trackingNumber;
-    const countryCode = (o.deliveryInfo && o.deliveryInfo.country) || "DK";
-    
-    trackMap[o.id] = {
-      found: !!ddTrack,
-      status: "dispatched",
-      carrier: null,
-      tracking_number: ddTrack || null,
-      tracking_url: null,
-      country_code: countryCode
-    };
-  }));
+  // Hent scan parallelt for alle ordrer med tracking nummer
+  const withTrack = orders.filter(o => o.trackingNumber);
+  document.getElementById('s-notrack').textContent = orders.length - withTrack.length;
 
-  renderRows(orders, trackMap, scanMap);
-
-  // Hent ParcelApp scan for ordrer med tracking nummer
-  await Promise.all(orders.map(async o => {
-    const t = trackMap[o.id];
-    if (!t || !t.tracking_number) return;
+  await Promise.all(withTrack.map(async o => {
+    const country = o.deliveryInfo && o.deliveryInfo.country ? o.deliveryInfo.country : 'DK';
     try {
-      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}&country=${encodeURIComponent(t.country_code || 'DK')}`);
+      const r = await fetch(PROXY + '/scan?trackingNumber=' + encodeURIComponent(o.trackingNumber) + '&country=' + encodeURIComponent(country));
       scanMap[o.id] = await r.json();
-    } catch { scanMap[o.id] = null; }
+    } catch {
+      scanMap[o.id] = null;
+    }
+    renderRows();
   }));
 
-  renderRows(orders, trackMap, scanMap);
-
-  // Opdater stats
   const delivered = Object.values(scanMap).filter(s => s && s.status === 'delivered').length;
   const transit = Object.values(scanMap).filter(s => s && s.status === 'transit').length;
-  const notrack = orders.filter(o => !trackMap[o.id] || !trackMap[o.id].found).length;
   document.getElementById('s-delivered').textContent = delivered;
   document.getElementById('s-transit').textContent = transit;
-  document.getElementById('s-notrack').textContent = notrack;
 }
 
-function renderRows(orders, trackMap, scanMap) {
+function renderRows() {
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = orders.map(o => {
-    const t = trackMap[o.id];
-    const s = scanMap[o.id];
     const name = (o.customerInfo && o.customerInfo.name) || '—';
-    let carrier = '—', scanDesc = '—', location = '—', time = '—', trackLink = '—';
+    const s = scanMap[o.id];
+    let scan, location = '—', time = '—';
 
-    if (!t) {
-      scanDesc = '<span class="spinner"></span>';
-    } else if (!t.found) {
-      scanDesc = '<span class="badge badge-none">Ikke i Webshipper</span>';
+    if (!o.trackingNumber) {
+      scan = '<span class="badge badge-none">Ingen tracking</span>';
+    } else if (s === undefined) {
+      scan = '<span class="spinner"></span>';
+    } else if (!s || !s.description) {
+      scan = '<span class="badge badge-warn">Ingen scan endnu</span>';
     } else {
-      carrier = t.carrier || '—';
-      trackLink = t.tracking_url ? `<a class="track" href="${t.tracking_url}" target="_blank">Spor ↗</a>` : '—';
-      if (!s) {
-        scanDesc = t.tracking_number ? '<span class="spinner"></span>' : '<span class="badge badge-none">Intet track nr.</span>';
-      } else {
-        const badge = s.status === 'delivered' ? 'badge-ok' : s.status === 'transit' ? 'badge-transit' : 'badge-warn';
-        scanDesc = `<span class="badge ${badge}">${s.description || s.status || '—'}</span>`;
-        location = s.location || '—';
-        time = fmtTime(s.time);
-      }
+      const badge = s.status === 'delivered' ? 'badge-ok' : s.status === 'transit' ? 'badge-transit' : 'badge-warn';
+      scan = '<span class="badge ' + badge + '">' + s.description + '</span>';
+      location = s.location || '—';
+      time = fmtTime(s.time);
     }
 
-    return `<tr>
-      <td>#${o.id}</td>
-      <td>${fmtDate(o.createdDate)}</td>
-      <td>${name}</td>
-      <td>${carrier}</td>
-      <td>${scanDesc}</td>
-      <td>${location}</td>
-      <td>${time}</td>
-      <td>${trackLink}</td>
-    </tr>`;
+    return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>' + scan + '</td><td>' + location + '</td><td>' + time + '</td></tr>';
   }).join('');
 }
 </script>
