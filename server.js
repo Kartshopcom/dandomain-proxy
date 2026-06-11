@@ -9,16 +9,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const PARCEL_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI2MTVhY2Q0MC00YTE3LTExZjEtYWJhZC00ZmIwOGM4YmQwYzgiLCJzdWJJZCI6IjY5ZmM5MTYyODRkMmRkMmZmZWViODliMyIsImlhdCI6MTc3ODE1OTk3MH0.qbkACqNwnTkDUoS32Hgb9Cj_H_Ubu5f1yWkSpNhks5A";
-
-const COUNTRY_MAP = {
-  "DK":"Denmark","DE":"Germany","SE":"Sweden","NO":"Norway","FI":"Finland",
-  "GB":"United Kingdom","US":"United States","FR":"France","NL":"Netherlands",
-  "BE":"Belgium","IT":"Italy","ES":"Spain","AT":"Austria","CH":"Switzerland",
-  "PL":"Poland","CZ":"Czech Republic","EE":"Estonia","LV":"Latvia","LT":"Lithuania",
-  "PT":"Portugal","RO":"Romania","HU":"Hungary","SK":"Slovakia","HR":"Croatia",
-  "JP":"Japan","AU":"Australia","CA":"Canada","IE":"Ireland","CY":"Cyprus","GR":"Greece"
-};
+const TM_KEY = "1q2wu4qg-7szu-qkwi-gudh-3ejljai1hp4m";
 
 const extractTrackNum = (url) => {
   if (!url) return null;
@@ -70,23 +61,10 @@ app.get("/forsendelser", async (req, res) => {
     const data = await r.json();
     if (!data.data) return res.json([]);
 
-    const results = await Promise.all(data.data.map(async s => {
+    const results = data.data.map(s => {
       const attrs = s.attributes;
       const tlink = attrs.tracking_links && attrs.tracking_links[0];
       const trackingUrl = tlink ? tlink.url : null;
-
-      let latestDesc = null, latestLoc = null, latestTime = null;
-      try {
-        const evR = await fetch("https://otk.api.webshipper.io/v2/shipments/" + s.id + "/status_events?page[size]=1&sort=-created_at", { headers });
-        const evData = await evR.json();
-        if (evData.data && evData.data[0]) {
-          const ev = evData.data[0].attributes;
-          latestDesc = ev.description || ev.status || null;
-          latestLoc = ev.location || null;
-          latestTime = ev.created_at || null;
-        }
-      } catch (e) {}
-
       return {
         id: s.id,
         reference: attrs.reference,
@@ -94,12 +72,9 @@ app.get("/forsendelser", async (req, res) => {
         status: attrs.status,
         tracking_url: trackingUrl,
         tracking_number: extractTrackNum(trackingUrl),
-        country_code: attrs.delivery_address ? attrs.delivery_address.country_code : "DK",
-        latest_description: latestDesc,
-        latest_location: latestLoc,
-        latest_time: latestTime
+        country_code: attrs.delivery_address ? attrs.delivery_address.country_code : "DK"
       };
-    }));
+    });
 
     res.json(results);
   } catch (e) {
@@ -107,28 +82,39 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// ParcelApp: hent rå data for debug
+// TrackingMore: hent seneste scan
 app.get("/scan", async (req, res) => {
-  const { trackingNumber, country } = req.query;
+  const { trackingNumber } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
 
-  const destCountry = COUNTRY_MAP[country] || country || "Denmark";
-
   try {
-    const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
+    const r = await fetch("https://api.trackingmore.com/v4/trackings/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Tracking-Api-Key": TM_KEY
+      },
       body: JSON.stringify({
-        shipments: [{ trackingId: trackingNumber, destinationCountry: destCountry }],
-        language: "en",
-        apiKey: PARCEL_KEY
+        tracking_number: trackingNumber,
+        language: "en"
       })
     });
-    const initData = await initR.json();
+    const data = await r.json();
 
-    // Returner rådata så vi kan se hvad ParcelApp svarer
-    return res.json({ raw: initData });
+    if (data.meta && data.meta.code === 200 && data.data) {
+      const d = data.data;
+      const events = d.origin_info && d.origin_info.trackinfo || [];
+      const latest = events[0];
+      return res.json({
+        status: d.delivery_status || null,
+        description: latest ? latest.StatusDescription : null,
+        location: latest ? latest.Details : null,
+        time: latest ? latest.Date : null,
+        carrier: d.courier_code || null
+      });
+    }
 
+    res.json({ status: null, description: null, location: null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
