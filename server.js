@@ -22,7 +22,7 @@ const COUNTRY_MAP = {
   "HR": "Croatia", "SI": "Slovenia", "BG": "Bulgaria", "GR": "Greece"
 };
 
-// DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29)
+// DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29, deduplikeret)
 app.get("/ordrer", async (req, res) => {
   const { key } = req.query;
   const now = new Date();
@@ -37,7 +37,14 @@ app.get("/ordrer", async (req, res) => {
     const [t26, t29] = await Promise.all([r26.text(), r29.text()]);
     const o26 = JSON.parse(t26) || [];
     const o29 = JSON.parse(t29) || [];
-    const merged = [...(Array.isArray(o26) ? o26 : []), ...(Array.isArray(o29) ? o29 : [])];
+    const all = [...(Array.isArray(o26) ? o26 : []), ...(Array.isArray(o29) ? o29 : [])];
+    // Deduplikér på id
+    const seen = new Set();
+    const merged = all.filter(o => {
+      if (seen.has(o.id)) return false;
+      seen.add(o.id);
+      return true;
+    });
     merged.sort((a, b) => a.id - b.id);
     res.json(merged);
   } catch (e) {
@@ -45,55 +52,7 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
-// Webshipper: hent tracking info for en ordre
-app.get("/tracking", async (req, res) => {
-  const { ref, wsKey } = req.query;
-  if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
-
-  const headers = {
-    Authorization: "Bearer " + wsKey,
-    Accept: "application/vnd.api+json"
-  };
-
-  const extractTrackNum = (url) => {
-    if (!url) return null;
-    const m = url.match(/txtRefNo=([^&]+)/) ||
-              url.match(/[?&]id=([^&]+)/) ||
-              url.match(/tracknum=([^&]+)/) ||
-              url.match(/AWB=([^&]+)/) ||
-              url.match(/track[^=]*=([^&]+)/i);
-    return m ? m[1] : null;
-  };
-
-  const tryFind = async (filterVal) => {
-    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?filter[reference]=" + encodeURIComponent(filterVal), { headers });
-    const data = await r.json();
-    return data.data && data.data[0];
-  };
-
-  try {
-    const shipment = await tryFind("O" + ref) || await tryFind(ref) || await tryFind("O0" + ref);
-    if (!shipment) return res.json({ found: false });
-
-    const attrs = shipment.attributes;
-    const tlink = attrs.tracking_links && attrs.tracking_links[0];
-    const trackingNumber = extractTrackNum(tlink ? tlink.url : null);
-    const countryCode = attrs.delivery_address ? attrs.delivery_address.country_code : "DK";
-
-    res.json({
-      found: true,
-      status: attrs.status,
-      carrier: attrs.carrier_alias,
-      tracking_number: trackingNumber,
-      tracking_url: tlink ? tlink.url : null,
-      country_code: countryCode
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ParcelApp: hent seneste scan
+// ParcelApp: hent seneste scan direkte
 app.get("/scan", async (req, res) => {
   const { trackingNumber, country } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
