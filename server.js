@@ -38,7 +38,6 @@ app.get("/ordrer", async (req, res) => {
     const o26 = JSON.parse(t26) || [];
     const o29 = JSON.parse(t29) || [];
     const all = [...(Array.isArray(o26) ? o26 : []), ...(Array.isArray(o29) ? o29 : [])];
-    // Deduplikér på id
     const seen = new Set();
     const merged = all.filter(o => {
       if (seen.has(o.id)) return false;
@@ -47,6 +46,54 @@ app.get("/ordrer", async (req, res) => {
     });
     merged.sort((a, b) => a.id - b.id);
     res.json(merged);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Webshipper: hent tracking URL for en ordre
+app.get("/tracking", async (req, res) => {
+  const { ref, wsKey } = req.query;
+  if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
+
+  const headers = {
+    Authorization: "Bearer " + wsKey,
+    Accept: "application/vnd.api+json"
+  };
+
+  const extractTrackNum = (url) => {
+    if (!url) return null;
+    const m = url.match(/txtRefNo=([^&]+)/) ||
+              url.match(/[?&]id=([^&]+)/) ||
+              url.match(/tracknum=([^&]+)/) ||
+              url.match(/AWB=([^&]+)/) ||
+              url.match(/track[^=]*=([^&]+)/i);
+    return m ? m[1] : null;
+  };
+
+  const tryFind = async (filterVal) => {
+    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?filter[reference]=" + encodeURIComponent(filterVal), { headers });
+    const data = await r.json();
+    return data.data && data.data[0];
+  };
+
+  try {
+    const shipment = await tryFind("O" + ref) || await tryFind(ref) || await tryFind("O0" + ref);
+    if (!shipment) return res.json({ found: false });
+
+    const attrs = shipment.attributes;
+    const tlink = attrs.tracking_links && attrs.tracking_links[0];
+    const trackingNumber = extractTrackNum(tlink ? tlink.url : null);
+    const countryCode = attrs.delivery_address ? attrs.delivery_address.country_code : "DK";
+
+    res.json({
+      found: true,
+      status: attrs.status,
+      carrier: attrs.carrier_alias,
+      tracking_number: trackingNumber,
+      tracking_url: tlink ? tlink.url : null,
+      country_code: countryCode
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
