@@ -123,12 +123,12 @@ async function load() {
   // Vis ordrer straks
   renderRows();
 
-  // Hent scan parallelt for alle ordrer med tracking nummer
+  // Hent scan én ad gangen for at undgå timeout
   const withTrack = orders.filter(o => o.trackingNumber);
   document.getElementById('s-notrack').textContent = orders.length - withTrack.length;
 
-  await Promise.all(withTrack.map(async o => {
-    const country = o.deliveryInfo && o.deliveryInfo.country ? o.deliveryInfo.country : 'DK';
+  for (const o of withTrack) {
+    const country = (o.deliveryInfo && o.deliveryInfo.country) || 'DK';
     try {
       const r = await fetch(PROXY + '/scan?trackingNumber=' + encodeURIComponent(o.trackingNumber) + '&country=' + encodeURIComponent(country));
       scanMap[o.id] = await r.json();
@@ -136,7 +136,7 @@ async function load() {
       scanMap[o.id] = null;
     }
     renderRows();
-  }));
+  }
 
   const delivered = Object.values(scanMap).filter(s => s && s.status === 'delivered').length;
   const transit = Object.values(scanMap).filter(s => s && s.status === 'transit').length;
