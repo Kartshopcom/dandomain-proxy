@@ -133,12 +133,26 @@ async function load() {
   const trackMap = {}, scanMap = {};
   renderRows(orders, trackMap, scanMap);
 
-  // Hent Webshipper tracking for alle ordrer parallelt
+  // Hent scan direkte fra DanDomain trackingNumber — ingen Webshipper nødvendig
   await Promise.all(orders.map(async o => {
-    try {
-      const r = await fetch(`${PROXY}/tracking?ref=${o.id}&wsKey=${encodeURIComponent(wsKey)}`);
-      trackMap[o.id] = await r.json();
-    } catch { trackMap[o.id] = { found: false }; }
+    const ddTrack = o.trackingNumber;
+    const countryCode = o.deliveryInfo && o.deliveryInfo.country ? o.deliveryInfo.country : "DK";
+    if (!ddTrack) {
+      // Prøv Webshipper som fallback
+      try {
+        const r = await fetch(`${PROXY}/tracking?ref=${o.id}&wsKey=${encodeURIComponent(wsKey)}`);
+        trackMap[o.id] = await r.json();
+      } catch { trackMap[o.id] = { found: false }; }
+      return;
+    }
+    trackMap[o.id] = {
+      found: true,
+      status: "dispatched",
+      carrier: null,
+      tracking_number: ddTrack,
+      tracking_url: null,
+      country_code: countryCode
+    };
   }));
 
   renderRows(orders, trackMap, scanMap);
@@ -146,9 +160,9 @@ async function load() {
   // Hent ParcelApp scan for ordrer med tracking nummer
   await Promise.all(orders.map(async o => {
     const t = trackMap[o.id];
-    if (!t || !t.found || !t.tracking_number) return;
+    if (!t || !t.tracking_number) return;
     try {
-      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}&country=${encodeURIComponent(t.destination_country || 'DK')}`);
+      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}&country=${encodeURIComponent(t.country_code || 'DK')}`);
       scanMap[o.id] = await r.json();
     } catch { scanMap[o.id] = null; }
   }));
