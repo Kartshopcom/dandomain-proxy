@@ -3,13 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OTK Ordre Tracker</title>
+<title>OTK Admin</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; min-height: 100vh; }
-.header { background: #1a1a18; color: #fff; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 12px; }
-.header h1 { font-size: 16px; font-weight: 500; }
-.header .date { font-size: 13px; color: #aaa; margin-left: auto; }
+.header { background: #1a1a18; color: #fff; padding: 0 1.5rem; display: flex; align-items: center; gap: 16px; height: 52px; }
+.header .logo { font-size: 15px; font-weight: 600; margin-right: 8px; }
+.nav-btn { background: none; border: none; color: #aaa; font-size: 13px; cursor: pointer; padding: 6px 12px; border-radius: 6px; }
+.nav-btn:hover { background: #333; color: #fff; }
+.nav-btn.active { background: #fff; color: #1a1a18; font-weight: 500; }
+.header .date { font-size: 12px; color: #666; margin-left: auto; }
 .setup { max-width: 440px; margin: 3rem auto; background: #fff; border-radius: 12px; border: 1px solid #e0dfd8; padding: 1.5rem; }
 .setup h2 { font-size: 15px; font-weight: 500; margin-bottom: 1rem; }
 .field { margin-bottom: 1rem; }
@@ -17,13 +20,15 @@ body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; 
 .field input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
 .btn { width: 100%; padding: 10px; background: #1a1a18; color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; }
 .btn:hover { background: #333; }
-.main { max-width: 1300px; margin: 1.5rem auto; padding: 0 1rem; }
+.page { max-width: 1200px; margin: 1.5rem auto; padding: 0 1rem; display: none; }
+.page.active { display: block; }
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.5rem; }
 .stat { background: #fff; border: 1px solid #e0dfd8; border-radius: 10px; padding: 14px 16px; }
 .stat .lbl { font-size: 12px; color: #888; margin-bottom: 4px; }
 .stat .val { font-size: 22px; font-weight: 500; }
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
 .refresh-btn { padding: 7px 14px; background: #fff; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.refresh-btn:hover { background: #f0efe8; }
 table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e0dfd8; font-size: 13px; }
 th { text-align: left; padding: 10px 14px; background: #f9f8f5; font-weight: 500; font-size: 12px; color: #666; border-bottom: 1px solid #e0dfd8; }
 td { padding: 10px 14px; border-bottom: 1px solid #f0efe8; vertical-align: middle; }
@@ -36,6 +41,8 @@ tr:hover td { background: #fafaf7; }
 .badge-transit { background: #ddeeff; color: #1a4fa0; }
 a.track { display: inline-block; padding: 3px 8px; background: #1a1a18; color: #fff; border-radius: 6px; font-size: 11px; text-decoration: none; }
 a.track:hover { background: #333; }
+a.edit { display: inline-block; padding: 3px 8px; background: #185fa5; color: #fff; border-radius: 6px; font-size: 11px; text-decoration: none; }
+a.edit:hover { background: #1a4fa0; }
 .empty { text-align: center; padding: 3rem; color: #888; }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc; border-top-color: #555; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -44,10 +51,13 @@ a.track:hover { background: #333; }
 <body>
 
 <div class="header">
-  <h1>OTK Shop · Ordre tracker</h1>
+  <span class="logo">OTK Admin</span>
+  <button class="nav-btn active" id="nav-ordrer" onclick="showPage('ordrer')">📦 Ordrer</button>
+  <button class="nav-btn" id="nav-produkter" onclick="showPage('produkter')">📝 Produkter uden beskrivelse</button>
   <span class="date" id="today"></span>
 </div>
 
+<!-- Setup -->
 <div id="setup" class="setup">
   <h2>Log ind</h2>
   <div class="field">
@@ -58,21 +68,21 @@ a.track:hover { background: #333; }
     <label>Webshipper API-nøgle</label>
     <input type="password" id="ws-key" placeholder="268f2fb0..." />
   </div>
-  <button class="btn" onclick="load()">Hent ordrer (48 timer)</button>
+  <button class="btn" onclick="login()">Log ind</button>
 </div>
 
-<div id="main" class="main" style="display:none">
+<!-- Ordrer side -->
+<div id="page-ordrer" class="page">
   <div class="toolbar">
     <span style="font-size:14px;font-weight:500">Ordrer — seneste 48 timer</span>
-    <button class="refresh-btn" onclick="load()">↻ Opdater</button>
-    <span style="font-size:12px;color:#888;margin-left:auto">Sidst opdateret: <span id="updated">—</span></span>
-    <button onclick="document.getElementById('setup').style.display='block';document.getElementById('main').style.display='none'" style="padding:7px 12px;background:#fff;border:1px solid #ccc;border-radius:8px;font-size:12px;cursor:pointer;">Skift nøgler</button>
+    <button class="refresh-btn" onclick="loadOrdrer()">↻ Opdater</button>
+    <span style="font-size:12px;color:#888;margin-left:auto">Sidst opdateret: <span id="ordrer-updated">—</span></span>
   </div>
   <div class="stats">
     <div class="stat"><div class="lbl">Ordrer i alt</div><div class="val" id="s-total">—</div></div>
     <div class="stat"><div class="lbl">Afsendt</div><div class="val" id="s-sent">—</div></div>
     <div class="stat"><div class="lbl">Ikke afsendt</div><div class="val" id="s-unsent">—</div></div>
-    <div class="stat"><div class="lbl">Tracking link</div><div class="val" id="s-track">—</div></div>
+    <div class="stat"><div class="lbl">Med tracking</div><div class="val" id="s-track">—</div></div>
   </div>
   <table>
     <thead>
@@ -82,37 +92,69 @@ a.track:hover { background: #333; }
         <th>Kunde</th>
         <th>Carrier</th>
         <th>Status</th>
-        <th>Seneste scan</th>
-        <th>Lokation</th>
         <th>Link</th>
       </tr>
     </thead>
-    <tbody id="tbody"></tbody>
+    <tbody id="ordrer-tbody"></tbody>
+  </table>
+</div>
+
+<!-- Produkter side -->
+<div id="page-produkter" class="page">
+  <div class="toolbar">
+    <span style="font-size:14px;font-weight:500">Produkter uden beskrivelse</span>
+    <button class="refresh-btn" onclick="loadProdukter()">↻ Opdater</button>
+    <span style="font-size:12px;color:#888;margin-left:auto">Sidst opdateret: <span id="prod-updated">—</span></span>
+  </div>
+  <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+    <div class="stat"><div class="lbl">Produkter uden beskrivelse</div><div class="val" id="p-missing">—</div></div>
+    <div class="stat"><div class="lbl">Tjekket i alt</div><div class="val" id="p-total">—</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Produkt nr.</th>
+        <th>Navn</th>
+        <th>Kategori</th>
+        <th>Rediger</th>
+      </tr>
+    </thead>
+    <tbody id="prod-tbody"></tbody>
   </table>
 </div>
 
 <script>
 const PROXY = 'https://dandomain-proxy-production.up.railway.app';
+let ddKey = '', wsKey = '', currentPage = 'ordrer';
+
 document.getElementById('today').textContent = new Date().toLocaleDateString('da-DK', {weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
 function fmtDate(raw) {
   const ms = (raw || '').replace(/\/Date\((\d+).*\)\//, '$1');
   return ms ? new Date(+ms).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
 }
-function fmtTime(t) {
-  if (!t) return '—';
-  return new Date(t).toLocaleString('da-DK', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-}
 
-async function load() {
-  const ddKey = document.getElementById('dd-key').value.trim();
-  const wsKey = document.getElementById('ws-key').value.trim();
+function login() {
+  ddKey = document.getElementById('dd-key').value.trim();
+  wsKey = document.getElementById('ws-key').value.trim();
   if (!ddKey || !wsKey) return alert('Udfyld begge API-nøgler');
   document.getElementById('setup').style.display = 'none';
-  document.getElementById('main').style.display = 'block';
-  document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
+  showPage('ordrer');
+  loadOrdrer();
+}
 
-  // Hent DanDomain ordrer og Webshipper forsendelser parallelt
+function showPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.getElementById('nav-' + page).classList.add('active');
+  if (page === 'produkter') loadProdukter();
+}
+
+// ── ORDRER ──────────────────────────────────────────────
+async function loadOrdrer() {
+  document.getElementById('ordrer-tbody').innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span> Henter ordrer...</td></tr>';
   let orders = [], shipments = [];
   try {
     const [r1, r2] = await Promise.all([
@@ -121,17 +163,14 @@ async function load() {
     ]);
     orders = await r1.json();
     shipments = await r2.json();
-    if (!Array.isArray(orders)) throw new Error(orders.error || 'DanDomain fejl');
-    if (!Array.isArray(shipments)) throw new Error(shipments.error || 'Webshipper fejl');
   } catch(e) {
-    document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
+    document.getElementById('ordrer-tbody').innerHTML = '<tr><td colspan="6" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
     return;
   }
 
-  document.getElementById('updated').textContent = new Date().toLocaleTimeString('da-DK');
+  document.getElementById('ordrer-updated').textContent = new Date().toLocaleTimeString('da-DK');
   document.getElementById('s-total').textContent = orders.length;
 
-  // Byg lookup: reference -> forsendelse
   const shipMap = {};
   for (const s of shipments) {
     if (s.reference) {
@@ -140,38 +179,57 @@ async function load() {
     }
   }
 
-  // Stats
   const sent = orders.filter(o => shipMap[String(o.id)]).length;
-  const unsent = orders.length - sent;
-  const withLink = orders.filter(o => shipMap[String(o.id)] && shipMap[String(o.id)].tracking_url).length;
   document.getElementById('s-sent').textContent = sent;
-  document.getElementById('s-unsent').textContent = unsent;
-  document.getElementById('s-track').textContent = withLink;
+  document.getElementById('s-unsent').textContent = orders.length - sent;
+  document.getElementById('s-track').textContent = orders.filter(o => shipMap[String(o.id)] && shipMap[String(o.id)].tracking_url).length;
 
-  // Render
-  document.getElementById('tbody').innerHTML = orders.map(o => {
+  document.getElementById('ordrer-tbody').innerHTML = orders.map(o => {
     const name = (o.customerInfo && o.customerInfo.name) || '—';
     const s = shipMap[String(o.id)];
+    if (!s) return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>—</td><td><span class="badge badge-none">Ikke afsendt</span></td><td>—</td></tr>';
+    const badge = s.status === 'dispatched' ? '<span class="badge badge-transit">Afsendt</span>' : s.status === 'delivered' ? '<span class="badge badge-ok">Leveret</span>' : '<span class="badge badge-warn">' + (s.status || '—') + '</span>';
+    const link = s.tracking_url ? '<a class="track" href="' + s.tracking_url + '" target="_blank">Spor ↗</a>' : '—';
+    return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>' + (s.carrier || '—') + '</td><td>' + badge + '</td><td>' + link + '</td></tr>';
+  }).join('');
+}
 
-    if (!s) {
-      return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>—</td><td><span class="badge badge-none">Ikke afsendt</span></td><td>—</td><td>—</td><td>—</td></tr>';
+// ── PRODUKTER ────────────────────────────────────────────
+async function loadProdukter() {
+  document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty"><span class="spinner"></span> Henter produkter...</td></tr>';
+
+  let allProducts = [];
+  let page = 1;
+  const pageSize = 100;
+
+  try {
+    while (true) {
+      const r = await fetch(PROXY + '/produkter?key=' + encodeURIComponent(ddKey) + '&page=' + page + '&size=' + pageSize);
+      const data = await r.json();
+      if (!Array.isArray(data) || data.length === 0) break;
+      allProducts = allProducts.concat(data);
+      if (data.length < pageSize) break;
+      page++;
     }
+  } catch(e) {
+    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
+    return;
+  }
 
-    const statusBadge = s.status === 'dispatched'
-      ? '<span class="badge badge-transit">Afsendt</span>'
-      : s.status === 'delivered'
-      ? '<span class="badge badge-ok">Leveret</span>'
-      : '<span class="badge badge-warn">' + (s.status || '—') + '</span>';
+  document.getElementById('prod-updated').textContent = new Date().toLocaleTimeString('da-DK');
+  document.getElementById('p-total').textContent = allProducts.length;
 
-    const scan = s.latest_description
-      ? '<span class="badge badge-transit">' + s.latest_description + '</span>'
-      : '<span class="badge badge-none">Ingen scan endnu</span>';
+  const missing = allProducts.filter(p => !p.description || p.description.trim() === '' || p.description === '<p></p>' || p.description === '&nbsp;');
+  document.getElementById('p-missing').textContent = missing.length;
 
-    const link = s.tracking_url
-      ? '<a class="track" href="' + s.tracking_url + '" target="_blank">Spor ↗</a>'
-      : '—';
+  if (missing.length === 0) {
+    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty" style="color:#3b6d11">✓ Alle produkter har en beskrivelse!</td></tr>';
+    return;
+  }
 
-    return '<tr><td>#' + o.id + '</td><td>' + fmtDate(o.createdDate) + '</td><td>' + name + '</td><td>' + (s.carrier || '—') + '</td><td>' + statusBadge + '</td><td>' + scan + '</td><td>' + (s.latest_location || '—') + '</td><td>' + link + '</td></tr>';
+  document.getElementById('prod-tbody').innerHTML = missing.map(p => {
+    const editUrl = 'https://otkshop.dk/admin/products/edit/' + p.id;
+    return '<tr><td>' + (p.id || '—') + '</td><td>' + (p.name || '—') + '</td><td>' + (p.categoryName || '—') + '</td><td><a class="edit" href="' + editUrl + '" target="_blank">Rediger ↗</a></td></tr>';
   }).join('');
 }
 </script>
