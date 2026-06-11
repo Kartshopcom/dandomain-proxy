@@ -21,6 +21,22 @@ const extractTrackNum = (url) => {
   return m ? m[1] : null;
 };
 
+const guessCourier = (trackingNumber, carrier) => {
+  const CARRIER_MAP = {
+    "gls": "gls", "ups": "ups", "dhl": "dhl",
+    "dhl express": "dhl-express", "fedex": "fedex",
+    "dsv": "dsv", "dsv xpress": "dsv",
+    "postnord": "postnord-denmark", "bring": "bring", "dao": "dao-denmark"
+  };
+  const c = (carrier || "").toLowerCase();
+  if (CARRIER_MAP[c]) return CARRIER_MAP[c];
+  if (/^1Z/i.test(trackingNumber)) return "ups";
+  if (/^JD/i.test(trackingNumber)) return "dhl-express";
+  if (/^0432|^0922|^0430/i.test(trackingNumber)) return "gls";
+  if (/^872/i.test(trackingNumber)) return "gls";
+  return null;
+};
+
 // DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29)
 app.get("/ordrer", async (req, res) => {
   const { key } = req.query;
@@ -55,12 +71,10 @@ app.get("/forsendelser", async (req, res) => {
   const { wsKey } = req.query;
   if (!wsKey) return res.status(400).json({ error: "Mangler wsKey" });
   const headers = { Authorization: "Bearer " + wsKey, Accept: "application/vnd.api+json" };
-
   try {
     const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[size]=100&sort=-created_at", { headers });
     const data = await r.json();
     if (!data.data) return res.json([]);
-
     const results = data.data.map(s => {
       const attrs = s.attributes;
       const tlink = attrs.tracking_links && attrs.tracking_links[0];
@@ -75,7 +89,6 @@ app.get("/forsendelser", async (req, res) => {
         country_code: attrs.delivery_address ? attrs.delivery_address.country_code : "DK"
       };
     });
-
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -87,56 +100,45 @@ app.get("/scan", async (req, res) => {
   const { trackingNumber, carrier } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
 
-  // Map carrier navn til TrackingMore courier kode
-  const CARRIER_MAP = {
-    "gls": "gls",
-    "ups": "ups",
-    "dhl": "dhl",
-    "dhl express": "dhl-express",
-    "fedex": "fedex",
-    "dsv": "dsv",
-    "dsv xpress": "dsv",
-    "postnord": "postnord-denmark",
-    "bring": "bring",
-    "dao": "dao-denmark"
-  };
-
-  const carrierKey = (carrier || "").toLowerCase();
-  let courierCode = CARRIER_MAP[carrierKey] || null;
-
-  // Gæt courier fra tracking nummer format hvis ikke fundet
-  if (!courierCode) {
-    if (/^1Z/i.test(trackingNumber)) courierCode = "ups";
-    else if (/^JD|^1234/i.test(trackingNumber)) courierCode = "dhl-express";
-    else if (/^0432|^0922/i.test(trackingNumber)) courierCode = "gls";
-    else if (/^[0-9]{9,11}$/.test(trackingNumber)) courierCode = "dsv";
-    else courierCode = "ups";
-  }
+  const courierCode = guessCourier(trackingNumber, carrier);
+  if (!courierCode) return res.json({ status: null, description: null, location: null });
 
   try {
     const r = await fetch("https://api.trackingmore.com/v4/trackings/create", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Tracking-Api-Key": TM_KEY
-      },
+      headers: { "Content-Type": "application/json", "Tracking-Api-Key": TM_KEY },
       body: JSON.stringify({ tracking_number: trackingNumber, courier_code: courierCode, language: "en" })
     });
     const data = await r.json();
 
     if (data.meta && data.meta.code === 200 && data.data) {
       const d = data.data;
-      const events = d.origin_info && d.origin_info.trackinfo || [];
-      const latest = events[0];
       return res.json({
         status: d.delivery_status || null,
-        description: latest ? latest.StatusDescription : null,
-        location: latest ? latest.Details : null,
-        time: latest ? latest.Date : null
+        description: d.latest_event || null,
+        location: d.location_info ? (d.location_info.destination_country || null) : null,
+        time: d.latest_event_time || null
       });
     }
 
-    res.json({ raw: data });
+    // Tracking nummer eksisterer allerede — hent det
+    if (data.meta && data.meta.code === 4013) {
+      const r2 = await fetch("https://api.trackingmore.com/v4/trackings/get?tracking_numbers=" + encodeURIComponent(trackingNumber) + "&courier_code=" + courierCode, {
+        headers: { "Tracking-Api-Key": TM_KEY }
+      });
+      const data2 = await r2.json();
+      if (data2.data && data2.data.length > 0) {
+        const d = data2.data[0];
+        return res.json({
+          status: d.delivery_status || null,
+          description: d.latest_event || null,
+          location: d.location_info ? (d.location_info.destination_country || null) : null,
+          time: d.latest_event_time || null
+        });
+      }
+    }
+
+    res.json({ status: null, description: null, location: null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
