@@ -56,10 +56,21 @@ app.get("/tracking", async (req, res) => {
   }
 });
 
-// ParcelApp: hent seneste scan - returnerer rå shipment data
+// ParcelApp: hent seneste scan
 app.get("/scan", async (req, res) => {
   const { trackingNumber, country } = req.query;
   if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
+
+  const parse = s => {
+    const latest = s.states && s.states[0];
+    return {
+      status: s.status || null,
+      description: latest ? latest.status : null,
+      location: latest ? latest.location : null,
+      time: latest ? latest.date : null,
+      carrier: s.carrier ? s.carrier.name : null
+    };
+  };
 
   try {
     const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
@@ -74,7 +85,7 @@ app.get("/scan", async (req, res) => {
     const initData = await initR.json();
 
     if (initData.shipments && initData.shipments[0]) {
-      return res.json({ raw: initData.shipments[0] });
+      return res.json(parse(initData.shipments[0]));
     }
 
     const uuid = initData.uuid;
@@ -85,7 +96,7 @@ app.get("/scan", async (req, res) => {
       const pollR = await fetch(`https://parcelsapp.com/api/v3/shipments/tracking?uuid=${uuid}&apiKey=${PARCEL_KEY}`);
       const pollData = await pollR.json();
       if (pollData.done && pollData.shipments && pollData.shipments[0]) {
-        return res.json({ raw: pollData.shipments[0] });
+        return res.json(parse(pollData.shipments[0]));
       }
     }
 
