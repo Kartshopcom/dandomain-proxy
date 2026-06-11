@@ -135,8 +135,7 @@ async function load() {
   const shipMap = {};
   for (const s of shipments) {
     if (s.reference) {
-      // Reference kan være "O121184" eller "121184"
-      const key = s.reference.replace(/^O0?/, '');
+      const key = s.reference.replace(/^O0*/, '');
       shipMap[key] = s;
     }
   }
