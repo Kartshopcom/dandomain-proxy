@@ -133,23 +133,16 @@ async function load() {
   const trackMap = {}, scanMap = {};
   renderRows(orders, trackMap, scanMap);
 
-  // Hent scan direkte fra DanDomain trackingNumber — ingen Webshipper nødvendig
+  // Brug trackingNumber direkte fra DanDomain
   await Promise.all(orders.map(async o => {
     const ddTrack = o.trackingNumber;
-    const countryCode = o.deliveryInfo && o.deliveryInfo.country ? o.deliveryInfo.country : "DK";
-    if (!ddTrack) {
-      // Prøv Webshipper som fallback
-      try {
-        const r = await fetch(`${PROXY}/tracking?ref=${o.id}&wsKey=${encodeURIComponent(wsKey)}`);
-        trackMap[o.id] = await r.json();
-      } catch { trackMap[o.id] = { found: false }; }
-      return;
-    }
+    const countryCode = (o.deliveryInfo && o.deliveryInfo.country) || "DK";
+    
     trackMap[o.id] = {
-      found: true,
+      found: !!ddTrack,
       status: "dispatched",
       carrier: null,
-      tracking_number: ddTrack,
+      tracking_number: ddTrack || null,
       tracking_url: null,
       country_code: countryCode
     };
