@@ -154,5 +154,15 @@ app.get("/scan", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT);
+// DanDomain: hent produkter uden beskrivelse
+app.get("/produkter", async (req, res) => {
+  const { key, page, size } = req.query;
+  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/GetProductsByDateInterval?pageIndex=" + (page || 1) + "&pageSize=" + (size || 100);
+  try {
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const text = await r.text();
+    res.send(text);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
