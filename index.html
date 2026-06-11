@@ -148,7 +148,7 @@ async function load() {
     const t = trackMap[o.id];
     if (!t || !t.found || !t.tracking_number) return;
     try {
-      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}`);
+      const r = await fetch(`${PROXY}/scan?trackingNumber=${encodeURIComponent(t.tracking_number)}&country=${encodeURIComponent(t.destination_country || 'DK')}`);
       scanMap[o.id] = await r.json();
     } catch { scanMap[o.id] = null; }
   }));
