@@ -24,35 +24,36 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
-// Webshipper: debug - se rå struktur fra API
-app.get("/ws-debug", async (req, res) => {
-  const { wsKey } = req.query;
-  const r = await fetch("https://otk.api.webshipper.io/v2/shipments?page[limit]=1", {
-    headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" }
-  });
-  const data = await r.json();
-  res.json(data);
-});
-
-// Webshipper: hent seneste tracking for et tracking-nummer
+// Webshipper: hent tracking for en forsendelse via ordre-reference
 app.get("/tracking", async (req, res) => {
-  const { trackingNumber, wsKey } = req.query;
-  if (!trackingNumber || !wsKey) return res.status(400).json({ error: "Mangler trackingNumber eller wsKey" });
-  const url = `https://otk.api.webshipper.io/v2/shipments?filter[tracking_number]=${encodeURIComponent(trackingNumber)}`;
+  const { ref, wsKey } = req.query;
+  if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
+
+  const headers = { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" };
+
   try {
-    const r = await fetch(url, {
-      headers: { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" }
-    });
+    // Find forsendelse via reference (DanDomain ordre-nummer med O-prefix)
+    const r = await fetch(`https://otk.api.webshipper.io/v2/shipments?filter[reference]=O${ref}`, { headers });
     const data = await r.json();
     const shipment = data.data && data.data[0];
-    if (!shipment) return res.json({ status: null, location: null });
-    const events = shipment.attributes.tracking_events || [];
-    const latest = events[0] || null;
+    if (!shipment) return res.json({ found: false });
+
+    const attrs = shipment.attributes;
+
+    // Hent status events
+    const evR = await fetch(`https://otk.api.webshipper.io/v2/shipments/${shipment.id}/status_events`, { headers });
+    const evData = await evR.json();
+    const events = (evData.data || []);
+    const latest = events[0];
+
     res.json({
-      status: latest ? latest.description : null,
-      location: latest ? latest.location : null,
-      time: latest ? latest.event_time : null,
-      carrier: shipment.attributes.carrier_name || null
+      found: true,
+      status: attrs.status,
+      carrier: attrs.carrier_alias,
+      latest_description: latest ? latest.attributes.description : null,
+      latest_location: latest ? latest.attributes.location : null,
+      latest_time: latest ? latest.attributes.created_at : null,
+      tracking_url: attrs.tracking_links && attrs.tracking_links[0] ? attrs.tracking_links[0].url : null
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
