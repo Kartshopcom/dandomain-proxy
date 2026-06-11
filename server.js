@@ -9,20 +9,52 @@ app.use((req, res, next) => {
   next();
 });
 
-const PARCEL_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI2MTVhY2Q0MC00YTE3LTExZjEtYWJhZC00ZmIwOGM4YmQwYzgiLCJzdWJJZCI6IjY5ZmM5MTYyODRkMmRkMmZmZWViODliMyIsImlhdCI6MTc3ODE1OTk3MH0.qbkACqNwnTkDUoS32Hgb9Cj_H_Ubu5f1yWkSpNhks5A";
+// Webshipper: hent alle forsendelser fra de seneste 48 timer med tracking events
+app.get("/forsendelser", async (req, res) => {
+  const { wsKey } = req.query;
+  if (!wsKey) return res.status(400).json({ error: "Mangler wsKey" });
 
-const COUNTRY_MAP = {
-  "DK": "Denmark", "DE": "Germany", "SE": "Sweden", "NO": "Norway",
-  "FI": "Finland", "GB": "United Kingdom", "US": "United States",
-  "FR": "France", "NL": "Netherlands", "BE": "Belgium", "IT": "Italy",
-  "ES": "Spain", "AT": "Austria", "CH": "Switzerland", "PL": "Poland",
-  "CZ": "Czech Republic", "SK": "Slovakia", "HU": "Hungary", "RO": "Romania",
-  "PT": "Portugal", "EE": "Estonia", "LV": "Latvia", "LT": "Lithuania",
-  "JP": "Japan", "AU": "Australia", "CA": "Canada", "IE": "Ireland",
-  "HR": "Croatia", "SI": "Slovenia", "BG": "Bulgaria", "GR": "Greece"
-};
+  const headers = {
+    Authorization: "Bearer " + wsKey,
+    Accept: "application/vnd.api+json"
+  };
 
-// DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29, deduplikeret)
+  try {
+    // Hent forsendelser oprettet inden for 48 timer
+    const now = new Date();
+    const past48 = new Date(now - 48 * 60 * 60 * 1000).toISOString();
+
+    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?filter[created_after]=" + encodeURIComponent(past48) + "&page[size]=100", { headers });
+    const data = await r.json();
+
+    if (!data.data) return res.json([]);
+
+    const result = data.data.map(s => {
+      const attrs = s.attributes;
+      const tlink = attrs.tracking_links && attrs.tracking_links[0];
+      const latest = attrs.latest_status_event;
+
+      return {
+        id: s.id,
+        reference: attrs.reference,
+        carrier: attrs.carrier_alias,
+        status: attrs.status,
+        created_at: attrs.created_at,
+        tracking_url: tlink ? tlink.url : null,
+        latest_description: latest ? latest.description : null,
+        latest_location: latest ? latest.location : null,
+        latest_time: latest ? latest.event_time : null,
+        customer: attrs.delivery_address ? attrs.delivery_address.att_contact : null
+      };
+    });
+
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DanDomain: hent ordrer fra de seneste 48 timer
 app.get("/ordrer", async (req, res) => {
   const { key } = req.query;
   const now = new Date();
@@ -46,108 +78,6 @@ app.get("/ordrer", async (req, res) => {
     });
     merged.sort((a, b) => a.id - b.id);
     res.json(merged);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Webshipper: hent tracking URL for en ordre
-app.get("/tracking", async (req, res) => {
-  const { ref, wsKey } = req.query;
-  if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
-
-  const headers = {
-    Authorization: "Bearer " + wsKey,
-    Accept: "application/vnd.api+json"
-  };
-
-  const extractTrackNum = (url) => {
-    if (!url) return null;
-    const m = url.match(/txtRefNo=([^&]+)/) ||
-              url.match(/[?&]id=([^&]+)/) ||
-              url.match(/tracknum=([^&]+)/) ||
-              url.match(/AWB=([^&]+)/) ||
-              url.match(/track[^=]*=([^&]+)/i);
-    return m ? m[1] : null;
-  };
-
-  const tryFind = async (filterVal) => {
-    const r = await fetch("https://otk.api.webshipper.io/v2/shipments?filter[reference]=" + encodeURIComponent(filterVal), { headers });
-    const data = await r.json();
-    return data.data && data.data[0];
-  };
-
-  try {
-    const shipment = await tryFind("O" + ref) || await tryFind(ref) || await tryFind("O0" + ref);
-    if (!shipment) return res.json({ found: false });
-
-    const attrs = shipment.attributes;
-    const tlink = attrs.tracking_links && attrs.tracking_links[0];
-    const trackingNumber = extractTrackNum(tlink ? tlink.url : null);
-    const countryCode = attrs.delivery_address ? attrs.delivery_address.country_code : "DK";
-
-    res.json({
-      found: true,
-      status: attrs.status,
-      carrier: attrs.carrier_alias,
-      tracking_number: trackingNumber,
-      tracking_url: tlink ? tlink.url : null,
-      country_code: countryCode
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ParcelApp: hent seneste scan
-app.get("/scan", async (req, res) => {
-  const { trackingNumber, country } = req.query;
-  if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
-
-  const destCountry = COUNTRY_MAP[country] || country || "Denmark";
-
-  const parse = (s) => {
-    const latest = s.states && s.states[0];
-    return {
-      status: s.status || null,
-      description: latest ? latest.status : null,
-      location: latest ? latest.location : null,
-      time: latest ? latest.date : null
-    };
-  };
-
-  try {
-    const initR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shipments: [{ trackingId: trackingNumber, destinationCountry: destCountry }],
-        language: "en",
-        apiKey: PARCEL_KEY
-      })
-    });
-    const initData = await initR.json();
-
-    if (initData.shipments && initData.shipments[0] && initData.shipments[0].states && initData.shipments[0].states.length > 0) {
-      return res.json(parse(initData.shipments[0]));
-    }
-
-    const uuid = initData.uuid;
-    if (!uuid) return res.json({ status: null, description: null, location: null });
-
-    for (let i = 0; i < 15; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const pollR = await fetch("https://parcelsapp.com/api/v3/shipments/tracking?uuid=" + uuid + "&apiKey=" + PARCEL_KEY);
-      const pollData = await pollR.json();
-      if (pollData.done) {
-        if (pollData.shipments && pollData.shipments[0]) {
-          return res.json(parse(pollData.shipments[0]));
-        }
-        return res.json({ status: null, description: null, location: null });
-      }
-    }
-
-    res.json({ status: null, description: null, location: null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
