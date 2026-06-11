@@ -24,7 +24,7 @@ app.get("/ordrer", async (req, res) => {
   }
 });
 
-// Webshipper: hent tracking for en forsendelse via ordre-reference
+// Webshipper: find forsendelse og returnér tracking URL + carrier
 app.get("/tracking", async (req, res) => {
   const { ref, wsKey } = req.query;
   if (!ref || !wsKey) return res.status(400).json({ error: "Mangler ref eller wsKey" });
@@ -32,29 +32,95 @@ app.get("/tracking", async (req, res) => {
   const headers = { Authorization: `Bearer ${wsKey}`, Accept: "application/vnd.api+json" };
 
   try {
-    // Find forsendelse via reference (DanDomain ordre-nummer med O-prefix)
     const r = await fetch(`https://otk.api.webshipper.io/v2/shipments?filter[reference]=O${ref}`, { headers });
     const data = await r.json();
     const shipment = data.data && data.data[0];
     if (!shipment) return res.json({ found: false });
 
     const attrs = shipment.attributes;
+    const tlink = attrs.tracking_links && attrs.tracking_links[0];
 
-    // Hent status events
-    const evR = await fetch(`https://otk.api.webshipper.io/v2/shipments/${shipment.id}/status_events`, { headers });
-    const evData = await evR.json();
-    const events = (evData.data || []);
-    const latest = events[0];
+    // Udtræk trackingnummer fra pakker
+    const trackingNumber = attrs.packages && attrs.packages[0] && attrs.packages[0].barcode_usage_id
+      ? attrs.packages[0].barcode_usage_id
+      : null;
+
+    // Udtræk trackingnummer fra tracking URL hvis muligt
+    let trackNum = trackingNumber;
+    if (!trackNum && tlink) {
+      const m = tlink.url.match(/txtRefNo=([^&]+)/);
+      if (m) trackNum = m[1];
+    }
 
     res.json({
       found: true,
       status: attrs.status,
       carrier: attrs.carrier_alias,
-      latest_description: latest ? latest.attributes.description : null,
-      latest_location: latest ? latest.attributes.location : null,
-      latest_time: latest ? latest.attributes.created_at : null,
-      tracking_url: attrs.tracking_links && attrs.tracking_links[0] ? attrs.tracking_links[0].url : null
+      tracking_number: trackNum,
+      tracking_url: tlink ? tlink.url : null
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Multi-carrier scan: hent seneste scan direkte fra carrier
+app.get("/scan", async (req, res) => {
+  const { trackingNumber, carrier } = req.query;
+  if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
+
+  try {
+    // GLS
+    if (!carrier || carrier.toLowerCase().includes("gls")) {
+      const r = await fetch(`https://gls-group.eu/app/service/open/rest/DK/da/rstt001?match=${trackingNumber}`);
+      const data = await r.json();
+      const events = data.tuStatus && data.tuStatus[0] && data.tuStatus[0].history || [];
+      const latest = events[0];
+      if (latest) return res.json({
+        carrier: "GLS",
+        description: latest.evtDscr,
+        location: latest.address ? `${latest.address.city}, ${latest.address.countryCode}` : null,
+        time: latest.date + " " + latest.time
+      });
+    }
+
+    // FedEx (kræver API nøgle — returnér link i stedet)
+    if (carrier && carrier.toLowerCase().includes("fedex")) {
+      return res.json({
+        carrier: "FedEx",
+        description: null,
+        location: null,
+        tracking_url: `https://www.fedex.com/fedextrack/?trknbr=${trackingNumber}`
+      });
+    }
+
+    // DHL
+    if (carrier && carrier.toLowerCase().includes("dhl")) {
+      const r = await fetch(`https://api-eu.dhl.com/track/shipments?trackingNumber=${trackingNumber}`, {
+        headers: { "DHL-API-Key": "demo-key" }
+      });
+      const data = await r.json();
+      const events = data.shipments && data.shipments[0] && data.shipments[0].events || [];
+      const latest = events[0];
+      if (latest) return res.json({
+        carrier: "DHL",
+        description: latest.description,
+        location: latest.location ? latest.location.address.addressLocality : null,
+        time: latest.timestamp
+      });
+    }
+
+    // UPS
+    if (carrier && carrier.toLowerCase().includes("ups")) {
+      return res.json({
+        carrier: "UPS",
+        description: null,
+        location: null,
+        tracking_url: `https://www.ups.com/track?tracknum=${trackingNumber}`
+      });
+    }
+
+    res.json({ carrier: carrier || "Ukendt", description: null, location: null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
