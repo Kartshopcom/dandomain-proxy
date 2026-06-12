@@ -270,7 +270,7 @@ async function loadProdukter() {
     document.getElementById('p-missing').textContent = missing.length;
     document.getElementById('prod-tbody').innerHTML = missing.length === 0
       ? '<tr><td colspan="4" class="empty" style="color:#3b6d11">✓ Alle produkter har en beskrivelse!</td></tr>'
-      : missing.map(p => '<tr><td>' + (p.id||'—') + '</td><td>' + (p.name||'—') + '</td><td>' + (p.categoryName||'—') + '</td><td><a class="action blue" href="https://otkshop.dk/admin/products/edit/' + p.id + '" target="_blank">Rediger ↗</a></td></tr>').join('');
+      : missing.map(p => '<tr><td>' + (p.number||'—') + '</td><td>' + (p.name||'—') + '</td><td>' + (p.categoryName||'—') + '</td><td><a class="action blue" href="https://otkshop.dk/admin/products/edit/' + p.id + '" target="_blank">Rediger ↗</a></td></tr>').join('');
   } catch(e) {
     document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
   }
