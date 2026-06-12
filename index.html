@@ -267,9 +267,8 @@ async function loadProdukter() {
     document.getElementById('prod-updated').textContent = new Date().toLocaleTimeString('da-DK');
     document.getElementById('p-total').textContent = all.length;
     const missing = all.filter(p => {
-      if (!p.descriptions || p.descriptions.length === 0) return true;
-      const desc = p.descriptions[0];
-      const text = (desc.description || desc.content || desc.value || '').replace(/<[^>]*>/g, '').trim();
+      if (!p.descriptions) return true;
+      const text = (p.descriptions.description || '').replace(/<[^>]*>/g, '').trim();
       return text === '';
     });
     document.getElementById('p-missing').textContent = missing.length;
