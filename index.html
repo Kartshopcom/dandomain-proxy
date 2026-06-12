@@ -111,7 +111,7 @@ a.action.blue:hover { background: #1a4fa0; }
     <div class="stat"><div class="lbl">Tjekket i alt</div><div class="val" id="p-total">—</div></div>
   </div>
   <table>
-    <thead><tr><th>Produkt nr.</th><th>Navn</th><th>Kategori</th><th>Rediger</th></tr></thead>
+    <thead><tr><th>Produkt nr.</th><th>Navn</th><th>🇩🇰 Dansk</th><th>🇬🇧 Engelsk</th><th>Rediger</th></tr></thead>
     <tbody id="prod-tbody"></tbody>
   </table>
 </div>
@@ -253,7 +253,7 @@ async function loadOrdrer() {
 
 // ── PRODUKTER UDEN BESKRIVELSE ───────────────────────────
 async function loadProdukter() {
-  document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty"><span class="spinner"></span> Henter produkter...</td></tr>';
+  document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> Henter produkter...</td></tr>';
   let all = [], page = 1;
   try {
     while (true) {
@@ -266,17 +266,19 @@ async function loadProdukter() {
     }
     document.getElementById('prod-updated').textContent = new Date().toLocaleTimeString('da-DK');
     document.getElementById('p-total').textContent = all.length;
-    const missing = all.filter(p => {
-      if (!p.descriptions) return true;
-      const text = (p.descriptions.description || '').replace(/<[^>]*>/g, '').trim();
-      return text === '';
-    });
+
+    const missing = all.filter(p => !p.desc26 || !p.desc29);
     document.getElementById('p-missing').textContent = missing.length;
+
     document.getElementById('prod-tbody').innerHTML = missing.length === 0
-      ? '<tr><td colspan="4" class="empty" style="color:#3b6d11">✓ Alle produkter har en beskrivelse!</td></tr>'
-      : missing.map(p => '<tr><td>' + (p.number||'—') + '</td><td>' + (p.name||'—') + '</td><td>' + (p.categoryName||'—') + '</td><td><a class="action blue" href="https://otkshop.dk/admin/products/edit/' + p.id + '" target="_blank">Rediger ↗</a></td></tr>').join('');
+      ? '<tr><td colspan="5" class="empty" style="color:#3b6d11">✓ Alle produkter har beskrivelse på begge sites!</td></tr>'
+      : missing.map(p => {
+          const dk = p.desc26 ? '<span class="badge badge-ok">✓</span>' : '<span class="badge badge-warn">Mangler</span>';
+          const en = p.desc29 ? '<span class="badge badge-ok">✓</span>' : '<span class="badge badge-warn">Mangler</span>';
+          return '<tr><td>' + (p.number||'—') + '</td><td>' + (p.name||'—') + '</td><td>' + dk + '</td><td>' + en + '</td><td><a class="action blue" href="https://otkshop.dk/admin/products/edit/' + p.id + '" target="_blank">Rediger ↗</a></td></tr>';
+        }).join('');
   } catch(e) {
-    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="4" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
+    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
   }
 }
 
