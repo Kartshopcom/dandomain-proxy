@@ -94,10 +94,13 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// DanDomain: hent produkter
+// DanDomain: hent produkter via ProductPage
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
-  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/GetProductList/" + (page || 1) + "/" + (size || 100);
+  const siteId = 26;
+  const pageSize = size || 100;
+  const pageIndex = page || 1;
+  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/" + siteId + "?pageIndex=" + pageIndex + "&pageSize=" + pageSize;
   try {
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     const text = await r.text();
