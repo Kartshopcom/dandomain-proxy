@@ -33,18 +33,7 @@ const guessCourier = (trackingNumber, carrier) => {
   if (/^1Z/i.test(trackingNumber)) return "ups";
   if (/^JD/i.test(trackingNumber)) return "dhl-express";
   if (/^0432|^0922|^0430|^872/i.test(trackingNumber)) return "gls";
-  return "ups";
-};
-
-const parseTracking = (d) => {
-  const events = (d.origin_info && d.origin_info.trackinfo) || [];
-  const latest = events[0];
-  return {
-    status: d.delivery_status || null,
-    description: latest ? (latest.StatusDescription || latest.Details) : null,
-    location: latest ? latest.Details : null,
-    time: latest ? latest.Date : null
-  };
+  return null;
 };
 
 // DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29)
@@ -105,56 +94,7 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// TrackingMore: opret eller hent tracking
-app.get("/scan", async (req, res) => {
-  const { trackingNumber, carrier } = req.query;
-  if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
-
-  const courierCode = guessCourier(trackingNumber, carrier);
-  const tmHeaders = { "Content-Type": "application/json", "Tracking-Api-Key": TM_KEY };
-
-  const getTracking = async () => {
-    const r = await fetch("https://api.trackingmore.com/v4/trackings/get?tracking_numbers=" + encodeURIComponent(trackingNumber) + "&courier_code=" + courierCode, {
-      headers: { "Tracking-Api-Key": TM_KEY }
-    });
-    const d = await r.json();
-    return d.data && d.data.length > 0 ? d.data[0] : null;
-  };
-
-  try {
-    // Prøv at oprette
-    const createR = await fetch("https://api.trackingmore.com/v4/trackings/create", {
-      method: "POST",
-      headers: tmHeaders,
-      body: JSON.stringify({ tracking_number: trackingNumber, courier_code: courierCode, language: "en" })
-    });
-    const createData = await createR.json();
-
-    // Hvis allerede oprettet (4013) eller success (200), poll for data
-    if (createData.meta && (createData.meta.code === 200 || createData.meta.code === 4013)) {
-      // Poll op til 8 gange
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        const d = await getTracking();
-        if (d && d.origin_info && d.origin_info.trackinfo && d.origin_info.trackinfo.length > 0) {
-          return res.json(parseTracking(d));
-        }
-        if (d && d.delivery_status && d.delivery_status !== "pending") {
-          return res.json(parseTracking(d));
-        }
-      }
-      // Return hvad vi har
-      const d = await getTracking();
-      return res.json(d ? parseTracking(d) : { status: null, description: null, location: null });
-    }
-
-    res.json({ status: null, description: null, location: null });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// DanDomain: hent produkter uden beskrivelse
+// DanDomain: hent produkter
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
   const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/GetProductsByDateInterval?pageIndex=" + (page || 1) + "&pageSize=" + (size || 100);
@@ -166,3 +106,52 @@ app.get("/produkter", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// TrackingMore: hent seneste scan
+app.get("/scan", async (req, res) => {
+  const { trackingNumber, carrier } = req.query;
+  if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
+
+  const courierCode = guessCourier(trackingNumber, carrier);
+  if (!courierCode) return res.json({ status: null, description: null, location: null });
+
+  const tmHeaders = { "Content-Type": "application/json", "Tracking-Api-Key": TM_KEY };
+
+  const getTracking = async () => {
+    const r = await fetch("https://api.trackingmore.com/v4/trackings/get?tracking_numbers=" + encodeURIComponent(trackingNumber) + "&courier_code=" + courierCode, {
+      headers: { "Tracking-Api-Key": TM_KEY }
+    });
+    const d = await r.json();
+    return d.data && d.data.length > 0 ? d.data[0] : null;
+  };
+
+  try {
+    const createR = await fetch("https://api.trackingmore.com/v4/trackings/create", {
+      method: "POST",
+      headers: tmHeaders,
+      body: JSON.stringify({ tracking_number: trackingNumber, courier_code: courierCode, language: "en" })
+    });
+    const createData = await createR.json();
+
+    if (createData.meta && (createData.meta.code === 200 || createData.meta.code === 4013)) {
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        const d = await getTracking();
+        if (d && d.origin_info && d.origin_info.trackinfo && d.origin_info.trackinfo.length > 0) {
+          const latest = d.origin_info.trackinfo[0];
+          return res.json({
+            status: d.delivery_status || null,
+            description: latest.StatusDescription || latest.Details || null,
+            location: latest.Details || null,
+            time: latest.Date || null
+          });
+        }
+      }
+    }
+    res.json({ status: null, description: null, location: null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.listen(process.env.PORT || 3000, "0.0.0.0", () => console.log("Server kører på port " + (process.env.PORT || 3000)));
