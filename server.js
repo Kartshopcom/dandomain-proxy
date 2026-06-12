@@ -94,13 +94,14 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// DanDomain: hent produkter via ProductPage
+// DanDomain: hent produkter via GetByModifiedInterval
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
   const siteId = 26;
   const pageSize = size || 100;
   const pageIndex = page || 1;
-  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/" + siteId + "?pageIndex=" + pageIndex + "&pageSize=" + pageSize;
+  // Hent produkter modificeret siden år 2000 = alle produkter
+  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/GetByModifiedInterval/" + siteId + "?modifiedAfter=2000-01-01T00:00:00&pageIndex=" + pageIndex + "&pageSize=" + pageSize;
   try {
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     const text = await r.text();
