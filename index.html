@@ -266,7 +266,7 @@ async function loadProdukter() {
     }
     document.getElementById('prod-updated').textContent = new Date().toLocaleTimeString('da-DK');
     document.getElementById('p-total').textContent = all.length;
-    const missing = all.filter(p => !p.description || p.description.replace(/<[^>]*>/g,'').trim() === '');
+    const missing = all.filter(p => !p.shortDescription || p.shortDescription.trim() === '');
     document.getElementById('p-missing').textContent = missing.length;
     document.getElementById('prod-tbody').innerHTML = missing.length === 0
       ? '<tr><td colspan="4" class="empty" style="color:#3b6d11">✓ Alle produkter har en beskrivelse!</td></tr>'
