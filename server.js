@@ -94,32 +94,36 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// DanDomain: hent produkter med beskrivelse
+// DanDomain: hent produkter med beskrivelse fra begge sites
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
-  const siteId = 26;
   const pageSize = parseInt(size) || 100;
   const pageIndex = parseInt(page) || 1;
 
   try {
-    // Hent produktliste
-    const listUrl = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/" + siteId + "?pageIndex=" + pageIndex + "&pageSize=" + pageSize;
-    const listR = await fetch(listUrl, { headers: { Accept: "application/json" } });
-    const products = await listR.json();
+    const [r26, r29] = await Promise.all([
+      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } }),
+      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/29?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } })
+    ]);
+    const [p26, p29] = await Promise.all([r26.json(), r29.json()]);
 
-    if (!Array.isArray(products)) return res.json([]);
+    if (!Array.isArray(p26)) return res.json([]);
 
-    // Hent fuld produktdata (inkl. descriptions) for hvert produkt parallelt
-    const full = await Promise.all(products.map(async p => {
-      try {
-        const r = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/" + siteId, {
-          headers: { Accept: "application/json" }
-        });
-        const data = await r.json();
-        return { ...p, descriptions: data.descriptions || null };
-      } catch(e) {
-        return p;
-      }
+    // Hent fuld produktdata fra begge sites parallelt
+    const full = await Promise.all(p26.map(async p => {
+      const [d26, d29] = await Promise.all([
+        fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/26", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => null),
+        fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/29", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => null)
+      ]);
+      const desc26 = d26 && d26.descriptions ? (d26.descriptions.description || '') : '';
+      const desc29 = d29 && d29.descriptions ? (d29.descriptions.description || '') : '';
+      return {
+        id: p.id,
+        number: p.number,
+        name: p.name,
+        desc26: desc26.replace(/<[^>]*>/g, '').trim(),
+        desc29: desc29.replace(/<[^>]*>/g, '').trim()
+      };
     }));
 
     res.json(full);
