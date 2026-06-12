@@ -94,17 +94,35 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// DanDomain: hent produkter via ByModificationDate
+// DanDomain: hent produkter med beskrivelse
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
   const siteId = 26;
-  const pageSize = size || 100;
-  const pageIndex = page || 1;
-  const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ByModificationDate/2000-01-01T00:00:00/" + siteId + "?pageIndex=" + pageIndex + "&pageSize=" + pageSize;
+  const pageSize = parseInt(size) || 100;
+  const pageIndex = parseInt(page) || 1;
+
   try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const text = await r.text();
-    res.send(text);
+    // Hent produktliste
+    const listUrl = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/" + siteId + "?pageIndex=" + pageIndex + "&pageSize=" + pageSize;
+    const listR = await fetch(listUrl, { headers: { Accept: "application/json" } });
+    const products = await listR.json();
+
+    if (!Array.isArray(products)) return res.json([]);
+
+    // Hent fuld produktdata (inkl. descriptions) for hvert produkt parallelt
+    const full = await Promise.all(products.map(async p => {
+      try {
+        const r = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/" + siteId, {
+          headers: { Accept: "application/json" }
+        });
+        const data = await r.json();
+        return { ...p, descriptions: data.descriptions || null };
+      } catch(e) {
+        return p;
+      }
+    }));
+
+    res.json(full);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
