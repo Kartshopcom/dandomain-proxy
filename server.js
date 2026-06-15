@@ -79,7 +79,7 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
-// Debug: se råt svar fra DanDomain produkt endpoint
+// Debug: se descriptions felt fra DanDomain produkt endpoint
 app.get("/debug-produkt", async (req, res) => {
   const { key, number, site } = req.query;
   try {
@@ -87,11 +87,10 @@ app.get("/debug-produkt", async (req, res) => {
       headers: { Accept: "application/json" }
     });
     const text = await r.text();
-    const jsonStart = text.indexOf('{"');
+    const data = JSON.parse(text);
     res.json({
-      jsonStart,
-      rawPreview: text.substring(0, 300),
-      jsonPreview: jsonStart > -1 ? text.substring(jsonStart, jsonStart + 500) : null
+      descriptions: data.descriptions,
+      shortDescription: data.shortDescription
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
