@@ -105,14 +105,10 @@ app.get("/produkter", async (req, res) => {
 
   const getDesc = async (number, siteId) => {
     try {
-      const r = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(number) + "/" + siteId, {
-        headers: { Accept: "application/json" }
-      });
+      const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(number) + "/" + siteId;
+      const r = await fetch(url, { headers: { Accept: "application/json" } });
       const text = await r.text();
-      // JSON starter efter det første nummer og HTML blob
-      const jsonStart = text.indexOf('{"');
-      if (jsonStart === -1) return false;
-      const data = JSON.parse(text.substring(jsonStart));
+      const data = JSON.parse(text);
       const desc = data.descriptions ? (data.descriptions.description || '') : '';
       return desc.trim().length > 0;
     } catch { return false; }
