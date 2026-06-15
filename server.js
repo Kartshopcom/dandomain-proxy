@@ -21,21 +21,6 @@ const extractTrackNum = (url) => {
   return m ? m[1] : null;
 };
 
-const guessCourier = (trackingNumber, carrier) => {
-  const CARRIER_MAP = {
-    "gls": "gls", "ups": "ups", "dhl": "dhl",
-    "dhl express": "dhl-express", "fedex": "fedex",
-    "dsv": "dsv", "dsv xpress": "ups",
-    "postnord": "postnord-denmark", "bring": "bring"
-  };
-  const c = (carrier || "").toLowerCase();
-  if (CARRIER_MAP[c]) return CARRIER_MAP[c];
-  if (/^1Z/i.test(trackingNumber)) return "ups";
-  if (/^JD/i.test(trackingNumber)) return "dhl-express";
-  if (/^0432|^0922|^0430|^872/i.test(trackingNumber)) return "gls";
-  return null;
-};
-
 // DanDomain: hent ordrer fra de seneste 48 timer (site 26 + 29)
 app.get("/ordrer", async (req, res) => {
   const { key } = req.query;
@@ -94,52 +79,66 @@ app.get("/forsendelser", async (req, res) => {
   }
 });
 
+// Debug: se råt svar fra DanDomain produkt endpoint
+app.get("/debug-produkt", async (req, res) => {
+  const { key, number, site } = req.query;
+  try {
+    const r = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(number) + "/" + (site || 26), {
+      headers: { Accept: "application/json" }
+    });
+    const text = await r.text();
+    const jsonStart = text.indexOf('{"');
+    res.json({
+      jsonStart,
+      rawPreview: text.substring(0, 300),
+      jsonPreview: jsonStart > -1 ? text.substring(jsonStart, jsonStart + 500) : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // DanDomain: hent produkter med beskrivelse fra begge sites
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
   const pageSize = parseInt(size) || 50;
   const pageIndex = parseInt(page) || 1;
 
+  const getDesc = async (number, siteId) => {
+    try {
+      const r = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(number) + "/" + siteId, {
+        headers: { Accept: "application/json" }
+      });
+      const text = await r.text();
+      // JSON starter efter det første nummer og HTML blob
+      const jsonStart = text.indexOf('{"');
+      if (jsonStart === -1) return false;
+      const data = JSON.parse(text.substring(jsonStart));
+      const desc = data.descriptions ? (data.descriptions.description || '') : '';
+      return desc.trim().length > 0;
+    } catch { return false; }
+  };
+
   try {
-    // Hent produktliste fra site 26
-    const listR = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } });
+    const listR = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, {
+      headers: { Accept: "application/json" }
+    });
     const products = await listR.json();
     if (!Array.isArray(products)) return res.json([]);
 
-    const numbers = products.map(p => p.number);
-
-    // Hent fuld data for alle produkter fra begge sites via POST
-    const [full26, full29] = await Promise.all([
-      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/FindProductsByProductNumbers/26", {
-        method: "POST",
-        headers: { "Accept": "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify(numbers)
-      }).then(r => r.json()).catch(() => []),
-      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/FindProductsByProductNumbers/29", {
-        method: "POST",
-        headers: { "Accept": "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify(numbers)
-      }).then(r => r.json()).catch(() => [])
-    ]);
-
-    const map26 = {}, map29 = {};
-    if (Array.isArray(full26)) for (const p of full26) map26[p.number] = p;
-    if (Array.isArray(full29)) for (const p of full29) map29[p.number] = p;
-
-    const result = products.map(p => {
-      const p26 = map26[p.number] || {};
-      const p29 = map29[p.number] || {};
-      const desc26 = p26.descriptions ? (p26.descriptions.description || '') : '';
-      const desc29 = p29.descriptions ? (p29.descriptions.description || '') : '';
+    const result = await Promise.all(products.map(async p => {
+      const [desc26, desc29] = await Promise.all([
+        getDesc(p.number, 26),
+        getDesc(p.number, 29)
+      ]);
       return {
         id: p.id,
         number: p.number,
         name: p.name,
-        // true = har beskrivelse, false = mangler
-        desc26: desc26.trim().length > 0,
-        desc29: desc29.trim().length > 0
+        desc26,
+        desc29
       };
-    });
+    }));
 
     res.json(result);
   } catch (e) {
@@ -147,51 +146,4 @@ app.get("/produkter", async (req, res) => {
   }
 });
 
-// TrackingMore: hent seneste scan
-app.get("/scan", async (req, res) => {
-  const { trackingNumber, carrier } = req.query;
-  if (!trackingNumber) return res.status(400).json({ error: "Mangler trackingNumber" });
-
-  const courierCode = guessCourier(trackingNumber, carrier);
-  if (!courierCode) return res.json({ status: null, description: null, location: null });
-
-  const tmHeaders = { "Content-Type": "application/json", "Tracking-Api-Key": TM_KEY };
-
-  const getTracking = async () => {
-    const r = await fetch("https://api.trackingmore.com/v4/trackings/get?tracking_numbers=" + encodeURIComponent(trackingNumber) + "&courier_code=" + courierCode, {
-      headers: { "Tracking-Api-Key": TM_KEY }
-    });
-    const d = await r.json();
-    return d.data && d.data.length > 0 ? d.data[0] : null;
-  };
-
-  try {
-    const createR = await fetch("https://api.trackingmore.com/v4/trackings/create", {
-      method: "POST",
-      headers: tmHeaders,
-      body: JSON.stringify({ tracking_number: trackingNumber, courier_code: courierCode, language: "en" })
-    });
-    const createData = await createR.json();
-
-    if (createData.meta && (createData.meta.code === 200 || createData.meta.code === 4013)) {
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        const d = await getTracking();
-        if (d && d.origin_info && d.origin_info.trackinfo && d.origin_info.trackinfo.length > 0) {
-          const latest = d.origin_info.trackinfo[0];
-          return res.json({
-            status: d.delivery_status || null,
-            description: latest.StatusDescription || latest.Details || null,
-            location: latest.Details || null,
-            time: latest.Date || null
-          });
-        }
-      }
-    }
-    res.json({ status: null, description: null, location: null });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.listen(process.env.PORT || 3000, "0.0.0.0", () => console.log("Server kører på port " + (process.env.PORT || 3000)));
+app.listen(process.env.PORT || 3000, "0.0.0.0", () => console.log("Server kører"));
