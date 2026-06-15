@@ -109,24 +109,26 @@ app.get("/produkter", async (req, res) => {
 
     if (!Array.isArray(p26)) return res.json([]);
 
-    // Hent fuld produktdata fra begge sites parallelt
-    const full = await Promise.all(p26.map(async p => {
-      const [d26, d29] = await Promise.all([
-        fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/26", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => null),
-        fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(p.number) + "/29", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => null)
-      ]);
-      const desc26 = d26 && d26.descriptions ? (d26.descriptions.description || '') : '';
-      const desc29 = d29 && d29.descriptions ? (d29.descriptions.description || '') : '';
+    // Byg lookup for site 29
+    const map29 = {};
+    if (Array.isArray(p29)) {
+      for (const p of p29) map29[p.number] = p;
+    }
+
+    const result = p26.map(p => {
+      const p9 = map29[p.number] || {};
+      const desc26 = p.descriptions ? (p.descriptions.description || '') : '';
+      const desc29 = p9.descriptions ? (p9.descriptions.description || '') : '';
       return {
         id: p.id,
         number: p.number,
         name: p.name,
-        desc26: desc26.replace(/<[^>]*>/g, '').trim(),
-        desc29: desc29.replace(/<[^>]*>/g, '').trim()
+        desc26: desc26.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, '').trim(),
+        desc29: desc29.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, '').trim()
       };
-    }));
+    });
 
-    res.json(full);
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
