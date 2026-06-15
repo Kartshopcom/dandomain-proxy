@@ -97,34 +97,46 @@ app.get("/forsendelser", async (req, res) => {
 // DanDomain: hent produkter med beskrivelse fra begge sites
 app.get("/produkter", async (req, res) => {
   const { key, page, size } = req.query;
-  const pageSize = parseInt(size) || 100;
+  const pageSize = parseInt(size) || 50;
   const pageIndex = parseInt(page) || 1;
 
   try {
-    const [r26, r29] = await Promise.all([
-      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } }),
-      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/29?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } })
+    // Hent produktliste fra site 26
+    const listR = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, { headers: { Accept: "application/json" } });
+    const products = await listR.json();
+    if (!Array.isArray(products)) return res.json([]);
+
+    const numbers = products.map(p => p.number);
+
+    // Hent fuld data for alle produkter fra begge sites via POST
+    const [full26, full29] = await Promise.all([
+      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/FindProductsByProductNumbers/26", {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(numbers)
+      }).then(r => r.json()).catch(() => []),
+      fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/FindProductsByProductNumbers/29", {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(numbers)
+      }).then(r => r.json()).catch(() => [])
     ]);
-    const [p26, p29] = await Promise.all([r26.json(), r29.json()]);
 
-    if (!Array.isArray(p26)) return res.json([]);
+    const map26 = {}, map29 = {};
+    if (Array.isArray(full26)) for (const p of full26) map26[p.number] = p;
+    if (Array.isArray(full29)) for (const p of full29) map29[p.number] = p;
 
-    // Byg lookup for site 29
-    const map29 = {};
-    if (Array.isArray(p29)) {
-      for (const p of p29) map29[p.number] = p;
-    }
-
-    const result = p26.map(p => {
-      const p9 = map29[p.number] || {};
-      const desc26 = p.descriptions ? (p.descriptions.description || '') : '';
-      const desc29 = p9.descriptions ? (p9.descriptions.description || '') : '';
+    const result = products.map(p => {
+      const p26 = map26[p.number] || {};
+      const p29 = map29[p.number] || {};
+      const desc26 = p26.descriptions ? (p26.descriptions.description || '') : '';
+      const desc29 = p29.descriptions ? (p29.descriptions.description || '') : '';
       return {
         id: p.id,
         number: p.number,
         name: p.name,
-        desc26: desc26.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, '').trim(),
-        desc29: desc29.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/g, '').trim()
+        desc26: desc26.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, '').trim(),
+        desc29: desc29.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, '').trim()
       };
     });
 
