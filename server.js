@@ -135,8 +135,9 @@ app.get("/produkter", async (req, res) => {
         id: p.id,
         number: p.number,
         name: p.name,
-        desc26: desc26.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, '').trim(),
-        desc29: desc29.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, '').trim()
+        // true = har beskrivelse, false = mangler
+        desc26: desc26.trim().length > 0,
+        desc29: desc29.trim().length > 0
       };
     });
 
