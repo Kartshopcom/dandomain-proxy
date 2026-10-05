@@ -1,6 +1,8 @@
 const express = require("express");
 const app = express();
 const path = require("path");
+const { createProductChecker, fetchJson } = require("./product-check");
+const checkProduct = createProductChecker({ fetchImpl: (...args) => fetch(...args) });
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -103,41 +105,40 @@ app.get("/produkter", async (req, res) => {
   const pageSize = parseInt(size) || 50;
   const pageIndex = parseInt(page) || 1;
 
-  const getDesc = async (number, siteId) => {
-    try {
-      const url = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/" + encodeURIComponent(number) + "/" + siteId;
-      const r = await fetch(url, { headers: { Accept: "application/json" } });
-      const text = await r.text();
-      const data = JSON.parse(text);
-      const desc = data.descriptions ? (data.descriptions.description || '') : '';
-      return desc.trim().length > 0;
-    } catch { return false; }
-  };
-
+  const baseUrl = "http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key;
   try {
-    const listR = await fetch("http://otkshop.dk/admin/webapi/Endpoints/v1_0/ProductService/" + key + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize, {
-      headers: { Accept: "application/json" }
-    });
-    const products = await listR.json();
-    if (!Array.isArray(products)) return res.json([]);
+    const products = await fetchJson(fetch,
+      baseUrl + "/ProductPage/26?pageIndex=" + pageIndex + "&pageSize=" + pageSize);
+    if (!Array.isArray(products) || products.some(p =>
+      !p || typeof p !== "object" || Array.isArray(p) ||
+      !((typeof p.number === "string" && p.number.trim()) ||
+        (typeof p.number === "number" && Number.isFinite(p.number))))) {
+      return res.status(502).json({ error: "Ugyldig produktliste fra DanDomain" });
+    }
 
     const result = await Promise.all(products.map(async p => {
-      const [desc26, desc29] = await Promise.all([
-        getDesc(p.number, 26),
-        getDesc(p.number, 29)
+      const [dk, en] = await Promise.all([
+        checkProduct(baseUrl, p.number, 26),
+        checkProduct(baseUrl, p.number, 29)
       ]);
       return {
         id: p.id,
         number: p.number,
         name: p.name,
-        desc26,
-        desc29
+        // true = present, false = missing, null = could not be checked.
+        desc26: dk.present,
+        desc29: en.present,
+        desc26Error: dk.error,
+        desc29Error: en.error
       };
     }));
 
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(e.code === "TIMEOUT" ? 504 : 502).json({
+      error: "Kunne ikke hente produktlisten fra DanDomain",
+      code: e.code || "NETWORK_ERROR"
+    });
   }
 });
 

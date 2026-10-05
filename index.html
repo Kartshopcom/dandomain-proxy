@@ -106,9 +106,10 @@ a.action.blue:hover { background: #1a4fa0; }
     <button class="refresh-btn" onclick="loadProdukter()">↻ Opdater</button>
     <span style="font-size:12px;color:#888;margin-left:auto">Opdateret: <span id="prod-updated">—</span></span>
   </div>
-  <div class="stats stats-2">
+  <div class="stats stats-3">
     <div class="stat"><div class="lbl">Mangler beskrivelse</div><div class="val" id="p-missing">—</div></div>
-    <div class="stat"><div class="lbl">Tjekket i alt</div><div class="val" id="p-total">—</div></div>
+    <div class="stat"><div class="lbl">Kunne ikke kontrolleres</div><div class="val" id="p-unknown">—</div></div>
+    <div class="stat"><div class="lbl">Produkter hentet</div><div class="val" id="p-total">—</div></div>
   </div>
   <table>
     <thead><tr><th>Produkt nr.</th><th>Navn</th><th>🇩🇰 Dansk</th><th>🇬🇧 Engelsk</th><th>Rediger</th></tr></thead>
@@ -252,14 +253,37 @@ async function loadOrdrer() {
 }
 
 // ── PRODUKTER UDEN BESKRIVELSE ───────────────────────────
+async function fetchProductPage(page) {
+  const r = await fetch(PROXY + '/produkter?key=' + encodeURIComponent(ddKey) + '&page=' + page + '&size=100');
+  if (!r.ok) throw new Error('Kunne ikke hente produktlisten (HTTP ' + r.status + '). Prøv igen.');
+  const data = await r.json();
+  if (!Array.isArray(data)) throw new Error('Ugyldigt svar fra produktchecket. Prøv igen.');
+  return data;
+}
+
+function descriptionUnknown(value) {
+  return value !== true && value !== false;
+}
+
+function descriptionBadge(value) {
+  if (value === true) return '<span class="badge badge-ok">✓</span>';
+  if (value === false) return '<span class="badge badge-warn">Mangler</span>';
+  return '<span class="badge badge-red">Kunne ikke kontrolleres</span>';
+}
+
+let productsLoading = false;
 async function loadProdukter() {
+  if (productsLoading) return;
+  productsLoading = true;
   document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="5" class="empty"><span class="spinner"></span> Henter produkter...</td></tr>';
+  ['p-missing', 'p-unknown', 'p-total', 'prod-updated'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
   let all = [], page = 1;
   try {
     while (true) {
-      const r = await fetch(PROXY + '/produkter?key=' + encodeURIComponent(ddKey) + '&page=' + page + '&size=100');
-      const data = await r.json();
-      if (!Array.isArray(data) || data.length === 0) break;
+      const data = await fetchProductPage(page);
+      if (data.length === 0) break;
       all = all.concat(data);
       if (data.length < 100) break;
       page++;
@@ -267,18 +291,24 @@ async function loadProdukter() {
     document.getElementById('prod-updated').textContent = new Date().toLocaleTimeString('da-DK');
     document.getElementById('p-total').textContent = all.length;
 
-    const missing = all.filter(p => !p.desc26 || !p.desc29);
+    const missing = all.filter(p => p.desc26 === false || p.desc29 === false);
+    const unknown = all.filter(p => descriptionUnknown(p.desc26) || descriptionUnknown(p.desc29));
     document.getElementById('p-missing').textContent = missing.length;
+    document.getElementById('p-unknown').textContent = unknown.length;
 
-    document.getElementById('prod-tbody').innerHTML = missing.length === 0
-      ? '<tr><td colspan="5" class="empty" style="color:#3b6d11">✓ Alle produkter har beskrivelse på begge sites!</td></tr>'
-      : missing.map(p => {
-          const dk = p.desc26 ? '<span class="badge badge-ok">✓</span>' : '<span class="badge badge-warn">Mangler</span>';
-          const en = p.desc29 ? '<span class="badge badge-ok">✓</span>' : '<span class="badge badge-warn">Mangler</span>';
+    // A product can have one confirmed missing description and one failed check.
+    const problems = all.filter(p => p.desc26 !== true || p.desc29 !== true);
+    document.getElementById('prod-tbody').innerHTML = problems.length === 0
+      ? '<tr><td colspan="5" class="empty" style="color:#3b6d11">' + (all.length ? '✓ Alle produkter har beskrivelse på begge sites!' : 'Ingen produkter at kontrollere.') + '</td></tr>'
+      : problems.map(p => {
+          const dk = descriptionBadge(p.desc26);
+          const en = descriptionBadge(p.desc29);
           return '<tr><td>' + (p.number||'—') + '</td><td>' + (p.name||'—') + '</td><td>' + dk + '</td><td>' + en + '</td><td><a class="action blue" href="https://otkshop.dk/admin/products/edit/' + p.id + '" target="_blank">Rediger ↗</a></td></tr>';
         }).join('');
   } catch(e) {
-    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="color:#a32d2d">Fejl: ' + e.message + '</td></tr>';
+    document.getElementById('prod-tbody').innerHTML = '<tr><td colspan="5" class="empty" style="color:#a32d2d">Produktchecket blev ikke gennemført. Prøv igen.</td></tr>';
+  } finally {
+    productsLoading = false;
   }
 }
 
@@ -288,9 +318,8 @@ async function loadBilleder() {
   let all = [], page = 1;
   try {
     while (true) {
-      const r = await fetch(PROXY + '/produkter?key=' + encodeURIComponent(ddKey) + '&page=' + page + '&size=100');
-      const data = await r.json();
-      if (!Array.isArray(data) || data.length === 0) break;
+      const data = await fetchProductPage(page);
+      if (data.length === 0) break;
       all = all.concat(data);
       if (data.length < 100) break;
       page++;
@@ -323,9 +352,8 @@ async function loadUdsolgte() {
   let all = [], page = 1;
   try {
     while (true) {
-      const r = await fetch(PROXY + '/produkter?key=' + encodeURIComponent(ddKey) + '&page=' + page + '&size=100');
-      const data = await r.json();
-      if (!Array.isArray(data) || data.length === 0) break;
+      const data = await fetchProductPage(page);
+      if (data.length === 0) break;
       all = all.concat(data);
       if (data.length < 100) break;
       page++;
